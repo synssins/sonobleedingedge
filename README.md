@@ -23,7 +23,7 @@ Download and run without any dependencies. Perfect for desktop ambient sound.
 
 Integrate with your smart home for whole-house audio.
 
-[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium.dev)
 
 - One-click install from addon store
 - Use any Home Assistant media_player
@@ -57,6 +57,14 @@ Configure speakers, volume defaults, and other preferences.
 ---
 
 ## What's New
+
+### Windows App v0.2.48-dev (Beta)
+
+> ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonorium.dev) for testing. Please report issues!
+
+- **HEOS Speaker Support (Beta)** - Denon/Marantz HEOS speakers discovered and controlled via CLI protocol
+- **HEOS Discovery** - Automatic detection of HEOS devices via SSDP and mDNS
+- **pyheos Integration** - Uses pyheos library for reliable HEOS communication (falls back to raw telnet)
 
 ### Windows App v0.2.47
 
@@ -175,10 +183,11 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 - DLNA/UPnP network speakers
 - Sonos speakers (via SoCo library)
 - Arylic/Linkplay speakers (via HTTP API)
+- **HEOS speakers (Denon/Marantz)** - Beta, via CLI protocol
 - *Coming soon: AirPlay (other devices), Chromecast*
 
 ### Home Assistant Addon
-- Any media_player entity in Home Assistant
+- Any media_player entity in Home Assistant (including HEOS via HA's native integration)
 - Organized by floors, areas, and custom groups
 
 ## API Reference

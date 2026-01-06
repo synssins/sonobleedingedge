@@ -11,7 +11,7 @@ from typing import ClassVar
 
 import homeassistant_api
 import httpx
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 from sonorium.client import ClientSonorium
@@ -199,7 +199,8 @@ class Settings(BaseSettings):
     mqtt_host: str = "auto"
     mqtt_port: int = 0  # 0 means auto-detect
     mqtt_username: str = ""
-    mqtt_password: str = ""
+    # SecretStr ensures password is never logged/printed accidentally
+    mqtt_password: SecretStr = SecretStr("")
 
     path_audio: str = str(paths.audio)
 

@@ -50,6 +50,11 @@ class MQTTClient:
         if username and password:
             self._client.username_pw_set(username, password)
 
+    def __repr__(self) -> str:
+        """Safe repr that never exposes password."""
+        auth = "authenticated" if self.username else "anonymous"
+        return f"MQTTClient({self.hostname}:{self.port}, {auth})"
+
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logger.info("  MQTT connected successfully")
@@ -157,6 +162,10 @@ class ClientSonorium:
             password=password,
         )
 
+    def __repr__(self) -> str:
+        """Safe repr that delegates to MQTTClient (never exposes password)."""
+        return f"ClientSonorium(mqtt={self._mqtt!r})"
+
     @property
     def mqtt_client(self) -> MQTTClient:
         """Get the MQTT client for entity managers."""
@@ -179,26 +188,36 @@ class ClientSonorium:
     @logger.instrument('Instantiating MQTT client...')
     def from_supervisor(cls, device: Sonorium, **kwargs):
         """
-        Create MQTT client with auto-detection from Supervisor API.
+        Create MQTT client with configuration from environment/settings.
 
-        Configuration priority:
-        1. Use addon config values if explicitly set (not "auto"/0/empty)
-        2. Otherwise, auto-detect from HA Supervisor API (/services/mqtt)
-        3. Username/password are optional (allows anonymous connections)
+        Configuration priority (handled in run.sh before Python starts):
+        1. Manual config from addon options (sonorium__mqtt_host != "auto")
+        2. Auto-detect via bashio::services mqtt (recommended HA method)
+        3. Fallback: Direct Supervisor API call (this code, if above failed)
+
+        Username/password are optional (allows anonymous connections).
         """
         import urllib.request
         import json
         from sonorium.settings import settings
 
-        # Start with config values
+        # Get config from environment (set by run.sh via bashio::services or manual config)
         mqtt_host = settings.mqtt_host if settings.mqtt_host and settings.mqtt_host.lower() != "auto" else None
         mqtt_port = settings.mqtt_port if settings.mqtt_port and settings.mqtt_port > 0 else None
         mqtt_username = settings.mqtt_username if settings.mqtt_username else None
-        mqtt_password = settings.mqtt_password if settings.mqtt_password else None
+        # Extract password from SecretStr (never log this value!)
+        mqtt_password = settings.mqtt_password.get_secret_value() if settings.mqtt_password else None
+        mqtt_password = mqtt_password if mqtt_password else None  # Empty string -> None
 
-        # If host/port not configured, fetch from Supervisor API
-        if not mqtt_host or not mqtt_port:
-            logger.info("  MQTT host/port not configured, fetching from Supervisor API...")
+        # If host is set but port is not, use default port
+        if mqtt_host and not mqtt_port:
+            mqtt_port = 1883
+            logger.info(f"  MQTT host configured, using default port: {mqtt_port}")
+
+        # Fallback: Try Supervisor API directly if bashio::services didn't provide config
+        # This is a backup - bashio::services in run.sh should have already set these
+        if not mqtt_host:
+            logger.info("  MQTT not configured, trying Supervisor API fallback...")
             try:
                 url = f"{settings.ha_supervisor_api}/services/mqtt"
                 req = urllib.request.Request(
@@ -211,24 +230,24 @@ class ClientSonorium:
                 with urllib.request.urlopen(req, timeout=10) as response:
                     response_json = json.loads(response.read().decode())
 
-                data = response_json.get("data", {})
-                logger.info(f"  MQTT service response: {response_json}")
+                # Handle both response formats: direct fields or wrapped in "data"
+                data = response_json.get("data", response_json)
+                logger.info(f"  Supervisor API response: {list(data.keys()) if isinstance(data, dict) else 'invalid'}")
 
-                if data:
-                    # Use Supervisor values for missing config
-                    if not mqtt_host:
-                        mqtt_host = data.get('host')
-                    if not mqtt_port:
-                        mqtt_port = data.get('port')
-                    # Only use Supervisor credentials if not configured and available
+                if isinstance(data, dict) and data.get('host'):
+                    mqtt_host = data.get('host')
+                    mqtt_port = data.get('port') or 1883
                     if not mqtt_username and 'username' in data:
                         mqtt_username = data.get('username')
                     if not mqtt_password and 'password' in data:
                         mqtt_password = data.get('password')
+                    logger.info(f"  Got MQTT config from Supervisor API: {mqtt_host}:{mqtt_port}")
                 else:
-                    logger.warning("  MQTT service not available from Supervisor")
+                    logger.warning("  Supervisor API returned no MQTT service data")
+            except urllib.error.HTTPError as e:
+                logger.warning(f"  Supervisor API error: HTTP {e.code} - {e.reason}")
             except Exception as e:
-                logger.warning(f"  Failed to fetch MQTT config from Supervisor: {e}")
+                logger.warning(f"  Supervisor API fallback failed: {type(e).__name__}: {e}")
 
         # Validate we have at least host and port
         if not mqtt_host:
