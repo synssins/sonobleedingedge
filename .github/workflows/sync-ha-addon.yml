@@ -1,0 +1,105 @@
+name: Sync HA Addon Repository
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'shared/**'
+      - 'sonorium_addon/**'
+      - 'scripts/sync_shared.py'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  sync-ha-addon:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run sync script
+        run: |
+          python scripts/sync_shared.py --addon --verbose
+          echo "Sync complete"
+
+      - name: Verify sync
+        run: |
+          echo "=== Checking synced plugins ==="
+          ls -la sonorium_addon/sonorium/plugins/
+          echo ""
+          echo "=== Verifying plugin files ==="
+          if [ -f "sonorium_addon/sonorium/plugins/__init__.py" ]; then
+            echo "✓ plugins/__init__.py exists"
+          else
+            echo "✗ plugins/__init__.py missing!"
+            exit 1
+          fi
+          if [ -f "sonorium_addon/sonorium/plugins/base.py" ]; then
+            echo "✓ plugins/base.py exists"
+          else
+            echo "✗ plugins/base.py missing!"
+            exit 1
+          fi
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+
+      - name: Push to HA Addon Repository
+        env:
+          HA_ADDON_DEPLOY_KEY: ${{ secrets.HA_ADDON_DEPLOY_KEY }}
+        run: |
+          # Only proceed if deploy key is configured
+          if [ -z "$HA_ADDON_DEPLOY_KEY" ]; then
+            echo "HA_ADDON_DEPLOY_KEY not configured, skipping push to HA repo"
+            echo "To enable: create a deploy key for the HA addon repo and add it as a secret"
+            exit 0
+          fi
+
+          # Set up SSH key
+          mkdir -p ~/.ssh
+          echo "$HA_ADDON_DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+          # Clone HA addon repo
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key" git clone git@github.com:synssins/sonobleedingedge-ha.git ha-addon-repo
+
+          # Copy addon files
+          rm -rf ha-addon-repo/*
+          cp -r sonorium_addon/* ha-addon-repo/
+          cp repository.yaml ha-addon-repo/
+          cp LICENSE ha-addon-repo/ 2>/dev/null || echo "No LICENSE file"
+
+          # Also copy logo/screenshots if they exist at root
+          cp logo.png ha-addon-repo/ 2>/dev/null || true
+          cp -r screenshots ha-addon-repo/ 2>/dev/null || true
+
+          # Commit and push
+          cd ha-addon-repo
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Sync from sonobleedingedge @ $(git -C .. rev-parse --short HEAD)"
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key" git push origin main
+            echo "✓ Pushed to HA addon repository"
+          fi
+
+      - name: Summary
+        run: |
+          echo "## Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Source commit: \`$(git rev-parse --short HEAD)\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Synced shared/ to sonorium_addon/" >> $GITHUB_STEP_SUMMARY
