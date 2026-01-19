@@ -25,7 +25,7 @@ if git diff --cached --name-only | grep -q "^shared/"; then
     git add "$REPO_ROOT/app/core/sonorium/plugins/"
     git add "$REPO_ROOT/sonorium_addon/sonorium/plugins/"
 
-    echo "✓ Synced files staged for commit"
+    echo "[OK] Synced files staged for commit"
 fi
 
 exit 0

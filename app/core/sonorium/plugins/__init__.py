@@ -4,6 +4,8 @@ Sonorium Plugin System
 This module provides the plugin architecture for extending Sonorium functionality.
 It follows the modular architecture defined in FOUNDATIONAL_CHANGES.md.
 
+Shared Code: This file is managed in shared/plugins/ and synced to deployment targets.
+
 Module Interface:
     - __feature_name__: "Plugin System"
     - __required__: False (optional module - app runs without it)

@@ -52,7 +52,7 @@ def main():
     except subprocess.CalledProcessError:
         print("  Note: Could not set core.hooksPath, using copied hooks instead")
 
-    print("\n✓ Git hooks installed successfully!")
+    print("\n[OK] Git hooks installed successfully!")
     print("\nThe pre-commit hook will automatically sync shared/ before each commit.")
     print("To manually sync: python scripts/sync_shared.py")
 
