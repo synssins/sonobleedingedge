@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Pre-commit hook: Sync shared/ to deployment targets
+#
+# This hook ensures that any changes to shared/ are automatically
+# synced to app/core/sonorium/ and sonorium_addon/sonorium/ before commit.
+#
+
+# Get the repo root
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Check if shared/ has staged changes
+if git diff --cached --name-only | grep -q "^shared/"; then
+    echo "Syncing shared/ to deployment targets..."
+
+    # Run the sync script
+    python "$REPO_ROOT/scripts/sync_shared.py" --verbose
+
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Sync script failed!"
+        exit 1
+    fi
+
+    # Stage the synced files
+    git add "$REPO_ROOT/app/core/sonorium/plugins/"
+    git add "$REPO_ROOT/sonorium_addon/sonorium/plugins/"
+
+    echo "✓ Synced files staged for commit"
+fi
+
+exit 0

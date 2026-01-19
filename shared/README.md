@@ -5,10 +5,9 @@ This directory contains **Category A** files - code that is identical across all
 ## How It Works
 
 1. **`shared/` is the source of truth** for all Category A code
-2. **`scripts/sync_shared.py`** copies files to deployment targets:
-   - `app/core/sonorium/` (standalone)
-   - `sonorium_addon/sonorium/` (HA addon)
-3. **GitHub Actions** automatically syncs to the HA addon repository
+2. **Pre-commit hook** automatically syncs to deployment targets before each commit
+3. **Both copies are committed** to git (required for HA one-click install)
+4. **GitHub Actions** verifies sync is correct on every push/PR
 
 ## Directory Structure
 
@@ -32,9 +31,21 @@ shared/
 
 ## Usage
 
+### First-Time Setup
+
+After cloning the repository, set up the pre-commit hook:
+
+```bash
+python scripts/setup_hooks.py
+```
+
+This ensures `shared/` is automatically synced before every commit.
+
 ### Local Development
 
-After modifying files in `shared/`, run the sync script:
+With the hook installed, just commit normally - sync happens automatically.
+
+To manually sync (e.g., for testing):
 
 ```bash
 # Sync to both targets
@@ -53,12 +64,9 @@ python scripts/sync_shared.py --dry-run
 python scripts/sync_shared.py --verbose
 ```
 
-### Automated Sync (CI)
+### CI Verification
 
-The GitHub Actions workflow `.github/workflows/sync-ha-addon.yml`:
-1. Triggers on pushes to `main` or `dev` that modify `shared/` or `sonorium_addon/`
-2. Runs the sync script
-3. Pushes the complete addon to the separate HA repository
+GitHub Actions (`.github/workflows/verify-sync.yml`) runs on every push/PR to verify that `shared/` is correctly synced. If you commit without the hook running, CI will fail and tell you to run the sync.
 
 ## Rules
 
