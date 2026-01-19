@@ -1,6 +1,6 @@
 # Sonorium
 
-![Sonorium](https://raw.githubusercontent.com/synssins/sonorium/main/logo.png)
+![Sonorium](https://raw.githubusercontent.com/synssins/sonobleedingedge/main/logo.png)
 
 **Multi-Zone Ambient Soundscape Mixer for Home Assistant**
 
@@ -97,22 +97,22 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 ### Channels View
 Create and manage multiple audio channels, each streaming to different speakers.
 
-![Channels](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels.png)
+![Channels](https://raw.githubusercontent.com/synssins/sonobleedingedge/main/screenshots/Channels.png)
 
 ### Theme Selection
 Choose from your library of ambient themes for each channel.
 
-![Theme Selection](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels_Theme_Selection.png)
+![Theme Selection](https://raw.githubusercontent.com/synssins/sonobleedingedge/main/screenshots/Channels_Theme_Selection.png)
 
 ### Themes Library
 Organize your audio files into themes with favorites and categories.
 
-![Themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Themes.png)
+![Themes](https://raw.githubusercontent.com/synssins/sonobleedingedge/main/screenshots/Themes.png)
 
 ### Settings
 Configure speakers, volume defaults, and other preferences.
 
-![Settings](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings.png)
+![Settings](https://raw.githubusercontent.com/synssins/sonobleedingedge/main/screenshots/Settings.png)
 
 ## Features
 
@@ -267,4 +267,4 @@ See LICENSE file for details.
 
 ## Contributing
 
-Contributions are welcome! Please see the [ROADMAP](https://github.com/synssins/sonorium/blob/main/ROADMAP.md) for planned features and development direction.
+Contributions are welcome! Please see the [ROADMAP](https://github.com/synssins/sonobleedingedge/blob/main/ROADMAP.md) for planned features and development direction.

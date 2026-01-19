@@ -21,7 +21,7 @@ from sonorium.obs import logger
 
 
 # Configuration
-GITHUB_REPO = "synssins/sonorium"
+GITHUB_REPO = "synssins/sonobleedingedge"
 # Use /releases to include prereleases (alpha/beta), not /releases/latest
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 USER_AGENT = "Sonorium/1.0"

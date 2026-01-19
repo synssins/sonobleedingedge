@@ -12,7 +12,7 @@ Sonorium lets you create immersive ambient audio environments. Stream richly lay
 
 Download and run without any dependencies. Perfect for desktop ambient sound.
 
-**[Download Latest Release](https://github.com/synssins/sonorium/releases)** | **[Installation Guide](https://github.com/synssins/sonorium/wiki/Standalone-App)**
+**[Download Latest Release](https://github.com/synssins/sonobleedingedge/releases)** | **[Installation Guide](https://github.com/synssins/sonobleedingedge/wiki/Standalone-App)**
 
 - Single portable executable—no installation required
 - Local audio playback through your default speakers
@@ -98,7 +98,7 @@ Configure speakers, volume defaults, and other preferences.
 
 ### Windows App v0.2.48-dev (Beta)
 
-> ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonorium.dev) for testing. Please report issues!
+> ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonobleedingedge.dev) for testing. Please report issues!
 
 - **HEOS Speaker Support (Beta)** - Denon/Marantz HEOS speakers discovered and controlled via CLI protocol
 - **HEOS Discovery** - Automatic detection of HEOS devices via SSDP and mDNS
@@ -164,7 +164,7 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ### Standalone App
 
-1. **Download** `Sonorium.exe` from the [Releases page](https://github.com/synssins/sonorium/releases)
+1. **Download** `Sonorium.exe` from the [Releases page](https://github.com/synssins/sonobleedingedge/releases)
 2. **Run** the executable (click "More info" → "Run anyway" if Windows SmartScreen appears)
 3. **Create** a session, select a theme and speakers
 4. **Play** and enjoy your ambient soundscape
@@ -179,16 +179,16 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ## Documentation
 
-Full documentation is available in the **[Wiki](https://github.com/synssins/sonorium/wiki)**:
+Full documentation is available in the **[Wiki](https://github.com/synssins/sonobleedingedge/wiki)**:
 
-- [Getting Started](https://github.com/synssins/sonorium/wiki/Getting-Started) - Home Assistant installation
-- [Standalone App](https://github.com/synssins/sonorium/wiki/Standalone-App) - Windows app guide with architecture details
-- [Themes](https://github.com/synssins/sonorium/wiki/Themes) - Creating and organizing themes
-- [Track Settings](https://github.com/synssins/sonorium/wiki/Track-Settings) - Playback modes explained
-- [Presets](https://github.com/synssins/sonorium/wiki/Presets) - Saving track configurations
-- [Speakers](https://github.com/synssins/sonorium/wiki/Speakers) - Speaker setup and management
-- [API Reference](https://github.com/synssins/sonorium/wiki/API-Reference) - REST API for automation
-- [Troubleshooting](https://github.com/synssins/sonorium/wiki/Troubleshooting) - Common issues
+- [Getting Started](https://github.com/synssins/sonobleedingedge/wiki/Getting-Started) - Home Assistant installation
+- [Standalone App](https://github.com/synssins/sonobleedingedge/wiki/Standalone-App) - Windows app guide with architecture details
+- [Themes](https://github.com/synssins/sonobleedingedge/wiki/Themes) - Creating and organizing themes
+- [Track Settings](https://github.com/synssins/sonobleedingedge/wiki/Track-Settings) - Playback modes explained
+- [Presets](https://github.com/synssins/sonobleedingedge/wiki/Presets) - Saving track configurations
+- [Speakers](https://github.com/synssins/sonobleedingedge/wiki/Speakers) - Speaker setup and management
+- [API Reference](https://github.com/synssins/sonobleedingedge/wiki/API-Reference) - REST API for automation
+- [Troubleshooting](https://github.com/synssins/sonobleedingedge/wiki/Troubleshooting) - Common issues
 
 ## Supported Formats
 
