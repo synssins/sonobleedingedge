@@ -5,7 +5,7 @@
   "description": "Import soundscapes from MyNoise.net by parsing PHP audio sources",
   "author": "Sonorium",
   "plugin_type": "importer",
-  "builtin": true,
+  "builtin": false,
   "entry_point": "plugin.py",
   "plugin_class": "MyNoisePlugin",
   "settings_schema": {
