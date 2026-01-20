@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2025-01-19",
+  "updated": "2025-01-20",
   "plugins": [
     {
       "id": "ambient_mixer",
@@ -19,6 +19,15 @@
       "author": "Sonorium",
       "category": "utilities",
       "zip_file": "theme_merge_v1.0.0.zip"
+    },
+    {
+      "id": "mynoise",
+      "name": "MyNoise Importer",
+      "description": "Import soundscapes from MyNoise.net by parsing PHP audio sources",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "importers",
+      "zip_file": "mynoise.zip"
     }
   ]
 }
