@@ -1,0 +1,36 @@
+{
+    "id": "heos",
+    "name": "HEOS Speaker (Denon/Marantz)",
+    "version": "1.0.0",
+    "description": "Stream audio to Denon and Marantz HEOS devices",
+    "author": "Sonorium",
+    "plugin_type": "speaker",
+    "category": "speakers",
+    "homepage": "https://github.com/synssins/sonobleedingedge",
+    "dependencies": {
+        "pyheos": ">=0.7.0"
+    },
+    "optional_dependencies": {
+        "zeroconf": ">=0.80.0"
+    },
+    "capabilities": ["discovery", "playback", "volume"],
+    "settings_schema": {
+        "type": "object",
+        "properties": {
+            "discovery_timeout": {
+                "type": "number",
+                "title": "Discovery Timeout",
+                "description": "Seconds to wait for HEOS discovery",
+                "default": 5,
+                "minimum": 1,
+                "maximum": 30
+            },
+            "use_pyheos": {
+                "type": "boolean",
+                "title": "Use pyheos Library",
+                "description": "Use pyheos library instead of raw telnet (recommended)",
+                "default": true
+            }
+        }
+    }
+}
