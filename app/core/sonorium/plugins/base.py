@@ -23,18 +23,6 @@ if TYPE_CHECKING:
     from sonorium.plugins.context import PluginContext, PluginState
 
 
-class PluginType(str, Enum):
-    """
-    Plugin type classification.
-
-    Used to categorize plugins in the UI and determine available features.
-    """
-    SPEAKER = "speaker"       # Network speaker protocol (Chromecast, Sonos, AirPlay, DLNA)
-    IMPORTER = "importer"     # Theme/audio importer (Ambient Mixer, MyNoise)
-    UTILITY = "utility"       # General utility (Theme Merge, etc.)
-    AUTOMATION = "automation" # Automation/integration plugins
-
-
 class HTTPMethod(Enum):
     """HTTP method types for API route registration."""
     GET = "GET"
@@ -131,7 +119,6 @@ class BasePlugin(ABC):
     description: str = ""
     author: str = ""
     builtin: bool = False  # True for plugins shipped with Sonorium
-    plugin_type: str = PluginType.UTILITY.value  # Plugin category
 
     def __init__(self, plugin_dir: Path, settings: dict, audio_path: Optional[Path] = None):
         """
@@ -300,7 +287,6 @@ class BasePlugin(ABC):
             "author": self.author,
             "enabled": self.enabled,
             "builtin": self._builtin,
-            "plugin_type": self.plugin_type,
             "settings": self.settings,
             "ui_schema": self.get_ui_schema(),
             "settings_schema": self.get_settings_schema(),

@@ -1,39 +1,64 @@
-# Shared Code Directory
+﻿# Shared Code Directory
 
-This directory contains **Category A** files - code that is identical across all Sonorium deployment targets (standalone app, Docker container, Home Assistant addon).
+This directory contains **shared code** - code that is identical across all Sonorium deployment targets (standalone app, Docker container, Home Assistant addon).
+
+## Why This Exists
+
+**Docker build context prevents imports from parent directories.** When the HA addon builds, its Dockerfile can ONLY access files inside `sonorium_addon/`. Therefore, shared code cannot be imported from a common location - it must be **physically copied** into each target.
 
 ## How It Works
 
-1. **`shared/` is the source of truth** for all Category A code
-2. **Pre-commit hook** automatically syncs to deployment targets before each commit
+```
+shared/                           # SOURCE OF TRUTH - Edit HERE
+    |
+    +--[sync]-->  app/core/sonorium/          (Standalone/Docker)
+    |
+    +--[sync]-->  sonorium_addon/sonorium/    (Home Assistant Add-on)
+```
+
+1. **`shared/` is the source of truth** for all shared code
+2. **Pre-commit hook** automatically syncs to deployment targets
 3. **Both copies are committed** to git (required for HA one-click install)
 4. **GitHub Actions** verifies sync is correct on every push/PR
+
+## THE GOLDEN RULE
+
+| I want to edit... | Edit in... | Why? |
+|-------------------|------------|------|
+| Plugin system | `shared/plugins/` | Shared code |
+| Core audio engine | `shared/core/` | Shared code |
+| Optional modules | `shared/modules/` | Shared code |
+| Windows-specific | `app/core/sonorium/platform/` | Platform code |
+| HA-specific | `sonorium_addon/sonorium/ha/` | Platform code |
+
+**NEVER edit synced files directly. ALWAYS edit in `shared/`.**
 
 ## Directory Structure
 
 ```
 shared/
-├── plugins/           # Plugin system (Stage 1 complete)
-│   ├── __init__.py    # Module interface
-│   ├── base.py        # SonoriumPlugin base class
-│   ├── manager.py     # Plugin manager
-│   ├── loader.py      # Plugin loader
-│   ├── context.py     # PluginContext
-│   ├── events.py      # EventBus
-│   └── builtin/       # Built-in plugins
-│
-├── (future)
-│   ├── recording.py   # Audio engine
-│   ├── themes.py      # Theme management
-│   ├── channel.py     # Broadcast model
-│   └── streaming/     # Protocol implementations
++-- plugins/                    # Plugin system
+|   +-- __init__.py             # Module interface
+|   +-- base.py                 # SonoriumPlugin base class
+|   +-- manager.py              # Plugin manager
+|   +-- loader.py               # Plugin loader
+|   +-- context.py              # PluginContext
+|   +-- events.py               # EventBus
+|   +-- speaker_base.py         # Speaker plugin base
+|   +-- builtin/                # Built-in plugins
+|       +-- sonos/              # (future) True Sonos plugin
+|       +-- airplay/            # (future) True AirPlay plugin
+|       +-- chromecast/         # (future) True Chromecast plugin
+|
++-- core/                       # (future) Core audio engine
++-- modules/                    # (future) Optional features
 ```
 
 ## Usage
 
 ### First-Time Setup
 
-After cloning the repository, set up the pre-commit hook:
+After cloning, set up the pre-commit hook:
 
 ```bash
 python scripts/setup_hooks.py
@@ -41,53 +66,72 @@ python scripts/setup_hooks.py
 
 This ensures `shared/` is automatically synced before every commit.
 
-### Local Development
-
-With the hook installed, just commit normally - sync happens automatically.
-
-To manually sync (e.g., for testing):
+### Development Workflow
 
 ```bash
-# Sync to both targets
+# 1. Make changes in shared/
+# 2. Sync to targets
 python scripts/sync_shared.py
 
-# Sync to standalone only
-python scripts/sync_shared.py --standalone
-
-# Sync to HA addon only
-python scripts/sync_shared.py --addon
-
-# Dry run (see what would be synced)
-python scripts/sync_shared.py --dry-run
-
-# Verbose output
-python scripts/sync_shared.py --verbose
+# 3. Test the app
+# 4. Commit and push
+git add -A
+git commit -m "your message"
+git push sonobleedingedge main
 ```
 
-### CI Verification
+### Sync Commands
 
-GitHub Actions (`.github/workflows/verify-sync.yml`) runs on every push/PR to verify that `shared/` is correctly synced. If you commit without the hook running, CI will fail and tell you to run the sync.
+```bash
+python scripts/sync_shared.py           # Sync all
+python scripts/sync_shared.py --verbose # With details  
+python scripts/sync_shared.py --dry-run # Preview only
+```
 
-## Rules
+## Platform-Agnostic Requirements
 
-1. **NEVER edit synced files directly** in `app/core/sonorium/` or `sonorium_addon/sonorium/`
-2. **ALWAYS edit in `shared/`** and run the sync script
-3. **Run sync before committing** any changes to shared code
-4. **The sync script overwrites** destination files - any local changes will be lost
+Code in `shared/` must be 100% platform-agnostic.
 
-## Adding New Shared Files
+**FORBIDDEN:**
+```python
+import sys
+if sys.platform == "win32":  # NO!
+
+import os
+os.environ.get("SUPERVISOR_TOKEN")  # NO!
+os.environ.get("APPDATA")  # NO!
+
+Path("/config/sonorium")  # NO hardcoded paths!
+```
+
+**USE DEPENDENCY INJECTION:**
+```python
+class MyPlugin:
+    def __init__(self, config: RuntimeConfig):
+        self.data_dir = config.data_dir  # Injected by platform adapter
+```
+
+## Verification
+
+Run before major commits:
+
+```bash
+# Should return ZERO results
+grep -r "sys.platform" shared/
+grep -r "SUPERVISOR_TOKEN" shared/
+grep -r "APPDATA" shared/
+grep -r '"/config' shared/
+grep -r '"/data' shared/
+```
+
+## CI Verification
+
+GitHub Actions (`.github/workflows/verify-sync.yml`) runs on every push/PR to verify that `shared/` is correctly synced. If you commit without syncing, CI will fail.
+
+## Adding New Shared Code
 
 1. Add the file/directory to `shared/`
 2. Update `SYNC_MAPPINGS` in `scripts/sync_shared.py`
-3. Run the sync script
+3. Run `python scripts/sync_shared.py`
 4. Test both deployments
-
-## File Categories
-
-| Category | Location | Description |
-|----------|----------|-------------|
-| **A (Shared)** | `shared/` | Identical across all platforms |
-| **B (Adapters)** | Platform dirs | Same interface, different implementation |
-| **C (Exclusive)** | Platform dirs | Platform-specific only |
-
-See `docs/CODEBASE_RESTRUCTURING_PLAN.md` for the full categorization.
+5. Commit all changes

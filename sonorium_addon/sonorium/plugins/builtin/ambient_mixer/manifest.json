@@ -4,8 +4,6 @@
   "version": "3.0.0",
   "description": "Import soundscapes from Ambient-Mixer.com with preset support",
   "author": "Sonorium",
-  "plugin_type": "importer",
-  "builtin": true,
   "entry_point": "plugin.py",
   "plugin_class": "AmbientMixerPlugin",
   "settings_schema": {

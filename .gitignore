@@ -167,3 +167,6 @@ app/windows/__pycache__/
 
 # Claude Code foundational architecture document - NEVER COMMIT
 FOUNDATIONAL_CHANGES.md
+
+# Claude Code instruction files - NEVER COMMIT
+CLAUDE_GIT_SAFETY.md

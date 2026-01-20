@@ -17,13 +17,15 @@ from pathlib import Path
 
 
 # Define what gets synced from shared/ to each target
+# Only directories/files that EXIST in shared/ will be synced.
+# Missing sources are skipped with a warning.
 SYNC_MAPPINGS = [
     # (source in shared/, destination subdirectory)
+    # Currently active:
     ("plugins", "plugins"),
-    # Future additions:
-    # ("streaming", "streaming"),
-    # ("core.py", "core.py"),
-    # ("themes.py", "themes.py"),
+    # Future extractions (will activate as we create them):
+    ("core", "core"),           # Pure audio engine, themes, sessions
+    ("modules", "modules"),     # Optional features (recording, etc.)
 ]
 
 

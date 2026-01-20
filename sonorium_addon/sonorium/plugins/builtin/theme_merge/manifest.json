@@ -4,10 +4,9 @@
   "version": "1.0.0",
   "description": "Merge multiple themes together or combine presets from different themes",
   "author": "Sonorium",
-  "plugin_type": "utility",
-  "builtin": true,
   "entry_point": "plugin.py",
   "plugin_class": "ThemeMergePlugin",
+  "builtin": false,
   "settings_schema": {
     "copy_files": {
       "type": "boolean",
