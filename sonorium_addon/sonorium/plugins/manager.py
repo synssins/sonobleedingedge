@@ -6,6 +6,9 @@ Manages the lifecycle and coordination of all loaded plugins.
 
 from __future__ import annotations
 
+import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -377,3 +380,218 @@ class PluginManager:
                     logger.error(
                         f"Error in {plugin.id}.on_theme_deleted: {e}"
                     )
+
+    # Plugin Installation/Deletion
+
+    async def install_plugin_from_zip(self, zip_path: Path) -> dict:
+        """
+        Install a plugin from a zip file.
+
+        The zip file should contain a plugin directory with:
+        - manifest.json (optional but recommended)
+        - plugin.py (required)
+
+        Args:
+            zip_path: Path to the zip file
+
+        Returns:
+            dict with success status and message
+        """
+        try:
+            if not zip_path.exists():
+                return {"success": False, "message": f"Zip file not found: {zip_path}"}
+
+            if not zipfile.is_zipfile(zip_path):
+                return {"success": False, "message": "Invalid zip file"}
+
+            # Extract to temporary directory first
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+
+                with zipfile.ZipFile(zip_path, 'r') as zf:
+                    zf.extractall(temp_path)
+
+                # Find the plugin directory (could be root or first subdirectory)
+                plugin_dir = None
+                plugin_py = temp_path / "plugin.py"
+
+                if plugin_py.exists():
+                    # Plugin files are at root of zip
+                    plugin_dir = temp_path
+                else:
+                    # Look for first subdirectory with plugin.py
+                    for item in temp_path.iterdir():
+                        if item.is_dir() and (item / "plugin.py").exists():
+                            plugin_dir = item
+                            break
+
+                if plugin_dir is None:
+                    return {
+                        "success": False,
+                        "message": "No plugin.py found in zip file"
+                    }
+
+                # Load manifest to get plugin ID
+                manifest = load_manifest(plugin_dir)
+                plugin_id = manifest.get("id", plugin_dir.name)
+
+                # Check if plugin already exists
+                if plugin_id in self.plugins:
+                    existing = self.plugins[plugin_id]
+                    if existing._builtin:
+                        return {
+                            "success": False,
+                            "message": f"Cannot overwrite builtin plugin: {plugin_id}"
+                        }
+                    # Unload existing plugin
+                    await self._unload_plugin(plugin_id)
+                    del self.plugins[plugin_id]
+
+                # Determine target directory
+                target_dir = self.plugins_dir / plugin_id
+
+                # Remove existing directory if present
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+
+                # Copy plugin to plugins directory
+                if plugin_dir == temp_path:
+                    # Files at root - create directory and copy contents
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    for item in plugin_dir.iterdir():
+                        if item.is_dir():
+                            shutil.copytree(item, target_dir / item.name)
+                        else:
+                            shutil.copy2(item, target_dir / item.name)
+                else:
+                    # Copy subdirectory
+                    shutil.copytree(plugin_dir, target_dir)
+
+                # Load the new plugin
+                plugin = await self._load_plugin(target_dir)
+                if plugin is None:
+                    # Cleanup on failure
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir)
+                    return {
+                        "success": False,
+                        "message": "Failed to load plugin after installation"
+                    }
+
+                logger.info(f"Installed plugin: {plugin.name} ({plugin.id})")
+                return {
+                    "success": True,
+                    "message": f"Plugin '{plugin.name}' installed successfully",
+                    "plugin": plugin.to_dict()
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to install plugin from {zip_path}: {e}")
+            return {"success": False, "message": str(e)}
+
+    async def install_plugin_from_bytes(self, data: bytes, filename: str) -> dict:
+        """
+        Install a plugin from uploaded zip bytes.
+
+        Args:
+            data: Raw zip file bytes
+            filename: Original filename (for logging)
+
+        Returns:
+            dict with success status and message
+        """
+        try:
+            # Write to temporary file
+            with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tf:
+                tf.write(data)
+                temp_zip = Path(tf.name)
+
+            try:
+                result = await self.install_plugin_from_zip(temp_zip)
+                return result
+            finally:
+                # Clean up temp file
+                if temp_zip.exists():
+                    temp_zip.unlink()
+
+        except Exception as e:
+            logger.error(f"Failed to install plugin from uploaded file: {e}")
+            return {"success": False, "message": str(e)}
+
+    async def delete_plugin(self, plugin_id: str) -> dict:
+        """
+        Delete a plugin.
+
+        Builtin plugins cannot be deleted.
+
+        Args:
+            plugin_id: The plugin to delete
+
+        Returns:
+            dict with success status and message
+        """
+        plugin = self.plugins.get(plugin_id)
+        if plugin is None:
+            return {"success": False, "message": f"Plugin not found: {plugin_id}"}
+
+        if plugin._builtin:
+            return {
+                "success": False,
+                "message": f"Cannot delete builtin plugin: {plugin_id}"
+            }
+
+        try:
+            # Get plugin directory before unloading
+            plugin_dir = plugin.plugin_dir
+            plugin_name = plugin.name
+
+            # Disable and unload
+            if plugin.enabled:
+                await self.disable_plugin(plugin_id)
+            await self._unload_plugin(plugin_id)
+
+            # Remove from plugins dict
+            del self.plugins[plugin_id]
+
+            # Delete the plugin directory
+            if plugin_dir.exists():
+                shutil.rmtree(plugin_dir)
+                logger.info(f"Deleted plugin directory: {plugin_dir}")
+
+            # Remove settings
+            if plugin_id in self.config.plugin_settings:
+                del self.config.plugin_settings[plugin_id]
+                self.config.save()
+
+            logger.info(f"Deleted plugin: {plugin_name} ({plugin_id})")
+            return {
+                "success": True,
+                "message": f"Plugin '{plugin_name}' deleted successfully"
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to delete plugin {plugin_id}: {e}")
+            return {"success": False, "message": str(e)}
+
+    def get_plugins_by_type(self, plugin_type: str) -> list[BasePlugin]:
+        """
+        Get all plugins of a specific type.
+
+        Args:
+            plugin_type: The plugin type (speaker, importer, utility, automation)
+
+        Returns:
+            List of plugins matching the type
+        """
+        return [
+            plugin for plugin in self.plugins.values()
+            if plugin.plugin_type == plugin_type
+        ]
+
+    def get_speaker_plugins(self) -> list[BasePlugin]:
+        """Get all speaker plugins."""
+        return self.get_plugins_by_type("speaker")
+
+    def get_importer_plugins(self) -> list[BasePlugin]:
+        """Get all importer plugins."""
+        return self.get_plugins_by_type("importer")

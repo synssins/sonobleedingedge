@@ -92,6 +92,7 @@ def load_manifest(plugin_dir: Path) -> dict:
         "version": "1.0.0",
         "description": "",
         "author": "Unknown",
+        "plugin_type": "utility",  # Default type
         "entry_point": "plugin.py",
         "plugin_class": None,  # Will be auto-detected
     }

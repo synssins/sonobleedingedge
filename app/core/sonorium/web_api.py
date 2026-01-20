@@ -2705,56 +2705,26 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
     @fastapi_app.delete('/api/plugins/{plugin_id}')
     async def delete_plugin(plugin_id: str):
-        """Delete a plugin."""
-        import shutil
-
+        """Delete a plugin (non-builtin only)."""
         if _plugin_manager is None:
             raise HTTPException(status_code=503, detail='Plugin system not initialized')
 
-        plugin = _plugin_manager.get_plugin(plugin_id)
-        if not plugin:
-            raise HTTPException(status_code=404, detail='Plugin not found')
+        result = await _plugin_manager.delete_plugin(plugin_id)
 
-        # Get the actual plugin directory from the plugin instance
-        plugin_dir = plugin.plugin_dir
+        if not result.get('success'):
+            error_msg = result.get('message', 'Unknown error')
+            if 'not found' in error_msg.lower():
+                raise HTTPException(status_code=404, detail=error_msg)
+            elif 'builtin' in error_msg.lower():
+                raise HTTPException(status_code=403, detail=error_msg)
+            else:
+                raise HTTPException(status_code=500, detail=error_msg)
 
-        # Disable the plugin first if enabled
-        if plugin.enabled:
-            await _plugin_manager.disable_plugin(plugin_id)
-
-        # Unload the plugin
-        await _plugin_manager._unload_plugin(plugin_id)
-
-        # Remove from plugins dict
-        if plugin_id in _plugin_manager.plugins:
-            del _plugin_manager.plugins[plugin_id]
-
-        # Delete the plugin directory
-        if plugin_dir and plugin_dir.exists():
-            try:
-                shutil.rmtree(plugin_dir)
-                logger.info(f'Deleted plugin directory: {plugin_dir}')
-            except Exception as e:
-                logger.error(f'Failed to delete plugin directory: {e}')
-                raise HTTPException(status_code=500, detail=f'Failed to delete plugin files: {e}')
-
-        # Remove from enabled list in config if present
-        config = get_config()
-        if plugin_id in config.enabled_plugins:
-            config.enabled_plugins.remove(plugin_id)
-        if plugin_id in config.plugin_settings:
-            del config.plugin_settings[plugin_id]
-        config.save()
-
-        return {'status': 'ok', 'message': f'Plugin "{plugin_id}" deleted successfully'}
+        return {'status': 'ok', 'message': result.get('message')}
 
     @fastapi_app.post('/plugins/upload')
     async def upload_plugin(file: UploadFile = File(...)):
-        """Upload and install a plugin."""
-        import zipfile
-        import io
-        import shutil
-
+        """Upload and install a plugin from a ZIP file."""
         if _plugin_manager is None:
             raise HTTPException(status_code=503, detail='Plugin system not initialized')
 
@@ -2763,84 +2733,28 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
         try:
             content = await file.read()
-            zip_buffer = io.BytesIO(content)
+            result = await _plugin_manager.install_plugin_from_bytes(content, file.filename)
 
-            with zipfile.ZipFile(zip_buffer, 'r') as zf:
-                # Check for plugin.py in the archive
-                file_list = zf.namelist()
-
-                # Find the plugin directory (may be nested)
-                plugin_py_paths = [f for f in file_list if f.endswith('plugin.py')]
-                if not plugin_py_paths:
-                    raise HTTPException(status_code=400, detail='No plugin.py found in ZIP')
-
-                # Use the first plugin.py found
-                plugin_py = plugin_py_paths[0]
-                plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
-
-                # Determine extraction target
-                if plugin_dir_name:
-                    target_name = plugin_dir_name.split('/')[0]
+            if not result.get('success'):
+                error_msg = result.get('message', 'Unknown error')
+                if 'builtin' in error_msg.lower():
+                    raise HTTPException(status_code=403, detail=error_msg)
+                elif 'not found' in error_msg.lower() or 'invalid' in error_msg.lower():
+                    raise HTTPException(status_code=400, detail=error_msg)
                 else:
-                    # Use filename without .zip
-                    target_name = file.filename[:-4]
+                    raise HTTPException(status_code=500, detail=error_msg)
 
-                target_dir = _plugin_manager.plugins_dir / target_name
-
-                # Remove existing if present
-                if target_dir.exists():
-                    shutil.rmtree(target_dir)
-
-                # Extract
-                target_dir.mkdir(parents=True, exist_ok=True)
-                for member in zf.namelist():
-                    # Remove top-level directory prefix if present
-                    if plugin_dir_name and member.startswith(plugin_dir_name + '/'):
-                        target_path = target_dir / member[len(plugin_dir_name) + 1:]
-                    elif plugin_dir_name and member == plugin_dir_name:
-                        continue  # Skip the directory entry itself
-                    else:
-                        target_path = target_dir / member
-
-                    if member.endswith('/'):
-                        target_path.mkdir(parents=True, exist_ok=True)
-                    else:
-                        target_path.parent.mkdir(parents=True, exist_ok=True)
-                        with zf.open(member) as src, open(target_path, 'wb') as dst:
-                            dst.write(src.read())
-
-            # Read the manifest to get the actual plugin ID before reloading
-            # (the folder name may differ from the plugin ID in manifest)
-            manifest_path = target_dir / 'manifest.json'
-            plugin_id = target_name  # Default to folder name
-            plugin_name = target_name
-
-            if manifest_path.exists():
-                try:
-                    import json
-                    manifest = json.loads(manifest_path.read_text())
-                    plugin_id = manifest.get('id', target_name)
-                    plugin_name = manifest.get('name', plugin_id)
-                except Exception as e:
-                    logger.warning(f'Failed to read manifest: {e}')
-
-            # Reload plugins to pick up the new one
-            await _plugin_manager.reload_plugins()
-
-            # Get the actual plugin name from the loaded plugin (may have been updated)
-            plugin = _plugin_manager.get_plugin(plugin_id)
-            if plugin:
-                plugin_name = plugin.name
-
+            plugin_info = result.get('plugin', {})
             return {
                 'status': 'ok',
-                'plugin_id': plugin_id,
-                'name': plugin_name,
-                'message': f'Plugin "{plugin_name}" installed successfully'
+                'plugin_id': plugin_info.get('id', ''),
+                'name': plugin_info.get('name', ''),
+                'message': result.get('message'),
+                'plugin': plugin_info
             }
 
-        except zipfile.BadZipFile:
-            raise HTTPException(status_code=400, detail='Invalid ZIP file')
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f'Error installing plugin: {e}')
             raise HTTPException(status_code=500, detail=f'Failed to install plugin: {e}')

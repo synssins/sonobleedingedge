@@ -17,6 +17,7 @@ Module Interface:
 Exports:
     - BasePlugin: Base class for all plugins
     - SonoriumPlugin: Alias for BasePlugin
+    - PluginType: Plugin category enum (speaker, importer, utility, automation)
     - PluginManager: Manages plugin lifecycle
     - PluginContext: Context injected into plugins
     - PluginState: Plugin lifecycle states
@@ -41,6 +42,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 from sonorium.plugins.base import (
     BasePlugin,
     SonoriumPlugin,
+    PluginType,
     APIRoute,
     HTTPMethod,
     HAEntityDefinition,
@@ -289,6 +291,7 @@ __all__ = [
     # Base classes
     'BasePlugin',
     'SonoriumPlugin',
+    'PluginType',
     'APIRoute',
     'HTTPMethod',
     'HAEntityDefinition',

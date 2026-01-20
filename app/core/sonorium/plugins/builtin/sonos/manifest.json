@@ -1,0 +1,30 @@
+{
+  "id": "sonos",
+  "name": "Sonos",
+  "version": "1.0.0",
+  "description": "Stream audio to Sonos speakers using the native SoCo protocol",
+  "author": "Sonorium",
+  "plugin_type": "speaker",
+  "builtin": true,
+  "entry_point": "plugin.py",
+  "plugin_class": "SonosPlugin",
+  "dependencies": ["soco"],
+  "settings_schema": {
+    "discovery_timeout": {
+      "type": "number",
+      "default": 5,
+      "label": "Discovery Timeout (seconds)",
+      "min": 1,
+      "max": 30
+    },
+    "group_mode": {
+      "type": "select",
+      "default": "individual",
+      "label": "Group Mode",
+      "options": [
+        {"value": "individual", "label": "Control speakers individually"},
+        {"value": "coordinator", "label": "Control through group coordinators"}
+      ]
+    }
+  }
+}

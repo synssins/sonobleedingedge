@@ -4233,45 +4233,88 @@ function renderInstalledPlugins() {
         return html;
     }
 
-    html += '<h4 style="margin-top: 1.5rem; margin-bottom: 1rem;">Installed Plugins</h4>';
+    // Group plugins by type
+    const pluginsByType = {
+        speaker: [],
+        importer: [],
+        utility: [],
+        automation: []
+    };
 
     for (const plugin of plugins) {
-        const statusClass = plugin.enabled ? 'enabled' : 'disabled';
-        const statusText = plugin.enabled ? 'Enabled' : 'Disabled';
-        const toggleText = plugin.enabled ? 'Disable' : 'Enable';
-        const isBuiltin = plugin.builtin || false;
+        const type = plugin.plugin_type || 'utility';
+        if (pluginsByType[type]) {
+            pluginsByType[type].push(plugin);
+        } else {
+            pluginsByType.utility.push(plugin);
+        }
+    }
 
+    // Plugin type labels and icons
+    const typeInfo = {
+        speaker: { label: 'Speaker Protocols', icon: 'M9 18V5l12-2v13M9 18c0 1.7-1.3 3-3 3s-3-1.3-3-3 1.3-3 3-3 3 1.3 3 3z', color: '#4CAF50' },
+        importer: { label: 'Theme Importers', icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12', color: '#2196F3' },
+        utility: { label: 'Utilities', icon: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z', color: '#FF9800' },
+        automation: { label: 'Automation', icon: 'M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5', color: '#9C27B0' }
+    };
+
+    // Render each plugin type section
+    for (const [type, typePlugins] of Object.entries(pluginsByType)) {
+        if (typePlugins.length === 0) continue;
+
+        const info = typeInfo[type];
         html += `
-            <div class="plugin-card ${statusClass}">
-                <div class="plugin-header">
-                    <div class="plugin-info">
-                        <h4>${escapeHtml(plugin.name)}</h4>
-                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
-                        <span class="plugin-status ${statusClass}">${statusText}</span>
-                        ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
-                    </div>
-                    <div class="plugin-actions">
-                        <button class="btn btn-sm ${plugin.enabled ? 'btn-secondary' : 'btn-primary'}"
-                                onclick="togglePlugin('${plugin.id}', ${!plugin.enabled})">
-                            ${toggleText}
-                        </button>
-                        ${!isBuiltin ? `
-                        <button class="btn btn-sm btn-danger"
-                                onclick="uninstallPlugin('${plugin.id}', '${escapeHtml(plugin.name)}')"
-                                title="Uninstall plugin">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                        </button>
-                        ` : ''}
-                    </div>
-                </div>
-                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
-                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
-                ${plugin.enabled && plugin.ui_schema && plugin.ui_schema.fields ? renderPluginUI(plugin) : ''}
-            </div>
+            <div class="plugin-type-section">
+                <h4 style="margin-top: 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="${info.color}" stroke-width="2" style="width: 18px; height: 18px;">
+                        <path d="${info.icon}"/>
+                    </svg>
+                    ${info.label}
+                    <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">(${typePlugins.length})</span>
+                </h4>
         `;
+
+        for (const plugin of typePlugins) {
+            const statusClass = plugin.enabled ? 'enabled' : 'disabled';
+            const statusText = plugin.enabled ? 'Enabled' : 'Disabled';
+            const toggleText = plugin.enabled ? 'Disable' : 'Enable';
+            const isBuiltin = plugin.builtin || false;
+
+            html += `
+                <div class="plugin-card ${statusClass}">
+                    <div class="plugin-header">
+                        <div class="plugin-info">
+                            <h4>${escapeHtml(plugin.name)}</h4>
+                            <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
+                            <span class="plugin-status ${statusClass}">${statusText}</span>
+                            <span class="plugin-type-badge" style="background: ${info.color}20; color: ${info.color}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">${type}</span>
+                            ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
+                        </div>
+                        <div class="plugin-actions">
+                            <button class="btn btn-sm ${plugin.enabled ? 'btn-secondary' : 'btn-primary'}"
+                                    onclick="togglePlugin('${plugin.id}', ${!plugin.enabled})">
+                                ${toggleText}
+                            </button>
+                            ${!isBuiltin ? `
+                            <button class="btn btn-sm btn-danger"
+                                    onclick="uninstallPlugin('${plugin.id}', '${escapeHtml(plugin.name)}')"
+                                    title="Uninstall plugin">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                                    <polyline points="3 6 5 6 21 6"/>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
+                            </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
+                    ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
+                    ${plugin.enabled && plugin.ui_schema && plugin.ui_schema.fields ? renderPluginUI(plugin) : ''}
+                </div>
+            `;
+        }
+
+        html += '</div>';
     }
 
     return html;
