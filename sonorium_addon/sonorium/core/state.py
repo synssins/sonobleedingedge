@@ -421,3 +421,18 @@ class StateStore:
     @property
     def speaker_groups(self) -> dict[str, SpeakerGroup]:
         return self.state.speaker_groups
+
+    # Plugin manager compatibility properties
+    # These proxy to settings so StateStore can be passed directly to PluginManager
+    @property
+    def enabled_plugins(self) -> list[str]:
+        return self.state.settings.enabled_plugins
+
+    @property
+    def plugin_settings(self) -> dict:
+        return self.state.settings.plugin_settings
+
+    @property
+    def audio_path(self) -> str:
+        """Return audio path from settings, with fallback to default."""
+        return getattr(self.state.settings, 'audio_path', '/media/sonorium')
