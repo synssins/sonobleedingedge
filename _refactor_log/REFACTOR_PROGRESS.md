@@ -1,8 +1,11 @@
 # Sonorium Refactor Progress
 
-## Status: IN PROGRESS
+## Status: PRIORITY 1 COMPLETE - TRUE PLUGINS EXTRACTED
 Started: 2025-01-20
 Last Updated: 2025-01-20
+
+### Phase 1 Results: All 6 Speaker Protocol Plugins Created
+All speaker protocols successfully extracted from core to TRUE plugins in `shared/plugins/builtin/`.
 
 ---
 
@@ -89,32 +92,38 @@ Files that only exist on one platform:
 | Module | Source | Date | Status | Notes |
 |--------|--------|------|--------|-------|
 | plugins/ | app/core/sonorium/plugins/ | 2025-01-20 | SYNCED | Now in shared/plugins/ |
+| **Sonos** | network_speakers.py, streaming.py | 2025-01-20 | ✅ DONE | `shared/plugins/builtin/sonos/` |
+| **Chromecast** | network_speakers.py, streaming.py | 2025-01-20 | ✅ DONE | `shared/plugins/builtin/chromecast/` |
+| **DLNA** | network_speakers.py, streaming.py | 2025-01-20 | ✅ DONE | `shared/plugins/builtin/dlna/` |
+| **AirPlay** | network_speakers.py, streaming.py | 2025-01-20 | ✅ DONE | `shared/plugins/builtin/airplay/` |
+| **HEOS** | network_speakers.py, streaming.py | 2025-01-20 | ✅ DONE | `shared/plugins/builtin/heos/` |
+| **Linkplay** | network_speakers.py, streaming.py | 2025-01-20 | ✅ DONE | `shared/plugins/builtin/linkplay/` |
 
 ## Current Extraction
-**Module**: Protocol analysis phase
-**Source File(s)**: network_speakers.py, streaming.py
-**Dependencies Identified**: See breakdown above
-**Call Sites**: N/A
-**Phase**: Analysis complete - ready for extraction planning
+**Module**: Priority 1 COMPLETE
+**Status**: All 6 speaker protocols extracted as TRUE plugins
+**Next Phase**: Priority 2 - Platform Adapter Extraction
 
 ---
 
 ## Extraction Order (Per FOUNDATIONAL_CHANGES.md)
 
-### Priority 1: True Plugin Extraction (Speaker Protocols)
-Each protocol needs:
-- Discovery component (from network_speakers.py)
-- Streaming component (from streaming.py)
-- Registration with core via SpeakerPlugin interface
+### Priority 1: True Plugin Extraction (Speaker Protocols) ✅ COMPLETE
+Each protocol extracted as TRUE plugin with:
+- `__init__.py` - Module exports with Plugin alias
+- `manifest.json` - Dependencies, capabilities, settings schema
+- `plugin.py` - Full SpeakerPlugin implementation
 
-| # | Protocol | Discovery LOC | Streaming LOC | Target |
-|---|----------|---------------|---------------|--------|
-| 1 | Sonos | ~50 | ~80 | `shared/plugins/builtin/sonos/` |
-| 2 | AirPlay | ~100 | ~150 | `shared/plugins/builtin/airplay/` |
-| 3 | Chromecast | ~40 | ~60 | `shared/plugins/builtin/chromecast/` |
-| 4 | DLNA | ~60 | ~70 | `shared/plugins/builtin/dlna/` |
-| 5 | HEOS | ~200 | ~100 | `shared/plugins/builtin/heos/` |
-| 6 | Linkplay | ~80 | ~80 | `shared/plugins/builtin/linkplay/` |
+| # | Protocol | Status | Location | Commits |
+|---|----------|--------|----------|---------|
+| 1 | Sonos | ✅ DONE | `shared/plugins/builtin/sonos/` | `c12a550` |
+| 2 | Chromecast | ✅ DONE | `shared/plugins/builtin/chromecast/` | `fbef2b3` |
+| 3 | DLNA | ✅ DONE | `shared/plugins/builtin/dlna/` | `2f2220b` |
+| 4 | AirPlay | ✅ DONE | `shared/plugins/builtin/airplay/` | `7e2e284` |
+| 5 | HEOS | ✅ DONE | `shared/plugins/builtin/heos/` | `b42814c` |
+| 6 | Linkplay | ✅ DONE | `shared/plugins/builtin/linkplay/` | `4dde00b` |
+
+**TRUE Plugin Acid Test**: Delete any plugin folder → feature gone, no errors
 
 ### Priority 2: Platform Adapter Extraction
 | # | Task | Notes |
@@ -134,11 +143,29 @@ Each protocol needs:
 ---
 
 ## Next Steps
+
+### Phase 1 (COMPLETE) ✅
 1. ✅ Analyze `network_speakers.py` - DONE
 2. ✅ Analyze `streaming.py` - DONE
 3. ✅ Map file categories - DONE
-4. **NEXT**: Create SpeakerPlugin interface in `shared/plugins/speaker_base.py`
-5. Begin Sonos extraction (smallest protocol footprint)
+4. ✅ Create SpeakerPlugin interface in `shared/plugins/speaker_base.py` - DONE
+5. ✅ Extract Sonos protocol - DONE
+6. ✅ Extract Chromecast protocol - DONE
+7. ✅ Extract DLNA protocol - DONE
+8. ✅ Extract AirPlay protocol - DONE
+9. ✅ Extract HEOS protocol - DONE
+10. ✅ Extract Linkplay protocol - DONE
+
+### Phase 2 (PENDING) - Platform Adapter Extraction
+1. Create `shared/platform/__init__.py` with RuntimeConfig interface
+2. Split `paths.py` into interface + platform implementations
+3. Split `config.py` into interface + platform implementations
+4. Move `update.py` to `platform/windows/updater.py`
+
+### Phase 3 (PENDING) - Core Module Extraction
+1. Extract audio engine to `shared/core/audio.py`
+2. Extract theme management to `shared/core/themes.py`
+3. Extract session management to `shared/core/sessions.py`
 
 ## Blocked / Issues
 (none yet)
