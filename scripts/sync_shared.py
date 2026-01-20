@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Sync shared code to deployment targets.
+Sync shared code and plugins to deployment targets.
 
-This script copies files from shared/ to both:
+This script copies files from shared/ and plugins/ to both:
 - app/core/sonorium/ (standalone app)
 - sonorium_addon/sonorium/ (HA addon)
 
-Run this before committing changes to shared/ files.
-GitHub Actions also runs this to sync to the HA addon repo.
+Run this before committing changes to shared/ or plugins/ files.
 """
 
 import argparse
@@ -16,62 +15,92 @@ import sys
 from pathlib import Path
 
 
-# Define what gets synced from shared/ to each target
-# Only directories/files that EXIST in shared/ will be synced.
-# Missing sources are skipped with a warning.
-SYNC_MAPPINGS = [
+# Sync from shared/ directory (plugin system, platform adapters, core modules)
+SHARED_MAPPINGS = [
     # (source in shared/, destination subdirectory)
-    # Currently active:
-    ("plugins", "plugins"),
-    ("platform", "platform"),   # Platform adapters (PathProvider, ConfigProvider)
-    # Future extractions (will activate as we create them):
-    ("core", "core"),           # Pure audio engine, themes, sessions
-    ("modules", "modules"),     # Optional features (recording, etc.)
+    ("plugins", "plugins"),           # Plugin system (base.py, speaker_base.py, etc.)
+    ("platform", "platform"),         # Platform adapters (PathProvider, ConfigProvider)
+    # Future extractions:
+    ("core", "core"),                 # Pure audio engine, themes, sessions
+    ("modules", "modules"),           # Optional features (recording, etc.)
+]
+
+# Sync from root plugins/ directory (actual plugin packages)
+PLUGIN_MAPPINGS = [
+    # (source in plugins/, destination in plugins/)
+    ("speakers", "speakers"),         # Speaker protocol plugins
+    ("sources", "sources"),           # Audio source plugins
 ]
 
 
-def sync_to_target(shared_dir: Path, target_dir: Path, verbose: bool = False) -> int:
+def sync_directory(src_path: Path, dst_path: Path, verbose: bool = False) -> int:
     """
-    Sync shared files to a target directory.
+    Sync a source directory to destination.
+    Returns number of files synced.
+    """
+    if not src_path.exists():
+        return 0
 
+    # Remove destination if it exists
+    if dst_path.exists():
+        if dst_path.is_dir():
+            shutil.rmtree(dst_path)
+        else:
+            dst_path.unlink()
+
+    # Copy source to destination
+    if src_path.is_dir():
+        shutil.copytree(src_path, dst_path, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        count = sum(1 for _ in dst_path.rglob('*') if _.is_file())
+        if verbose:
+            print(f"  Synced directory: {src_path.name} -> {dst_path}")
+        return count
+    else:
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, dst_path)
+        if verbose:
+            print(f"  Synced file: {src_path.name} -> {dst_path}")
+        return 1
+
+
+def sync_to_target(repo_root: Path, target_dir: Path, verbose: bool = False) -> int:
+    """
+    Sync shared files and plugins to a target directory.
     Returns number of files synced.
     """
     files_synced = 0
+    shared_dir = repo_root / "shared"
+    plugins_dir = repo_root / "plugins"
 
-    for src_name, dst_name in SYNC_MAPPINGS:
+    # Sync from shared/
+    for src_name, dst_name in SHARED_MAPPINGS:
         src_path = shared_dir / src_name
         dst_path = target_dir / dst_name
 
         if not src_path.exists():
-            print(f"  Warning: Source {src_path} does not exist, skipping")
+            if verbose:
+                print(f"  Warning: Source {src_path} does not exist, skipping")
             continue
 
-        # Remove destination if it exists
-        if dst_path.exists():
-            if dst_path.is_dir():
-                shutil.rmtree(dst_path)
-            else:
-                dst_path.unlink()
+        files_synced += sync_directory(src_path, dst_path, verbose)
 
-        # Copy source to destination
-        if src_path.is_dir():
-            shutil.copytree(src_path, dst_path, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-            # Count files
-            files_synced += sum(1 for _ in dst_path.rglob('*') if _.is_file())
+    # Sync plugins from root plugins/ to target plugins/
+    for src_name, dst_name in PLUGIN_MAPPINGS:
+        src_path = plugins_dir / src_name
+        dst_path = target_dir / "plugins" / dst_name
+
+        if not src_path.exists():
             if verbose:
-                print(f"  Synced directory: {src_name} -> {dst_path}")
-        else:
-            dst_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_path, dst_path)
-            files_synced += 1
-            if verbose:
-                print(f"  Synced file: {src_name} -> {dst_path}")
+                print(f"  Warning: Source {src_path} does not exist, skipping")
+            continue
+
+        files_synced += sync_directory(src_path, dst_path, verbose)
 
     return files_synced
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Sync shared code to deployment targets")
+    parser = argparse.ArgumentParser(description="Sync shared code and plugins to deployment targets")
     parser.add_argument("--standalone", action="store_true", help="Sync to standalone app only")
     parser.add_argument("--addon", action="store_true", help="Sync to HA addon only")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
@@ -83,6 +112,7 @@ def main():
     repo_root = script_dir.parent
 
     shared_dir = repo_root / "shared"
+    plugins_dir = repo_root / "plugins"
     standalone_target = repo_root / "app" / "core" / "sonorium"
     addon_target = repo_root / "sonorium_addon" / "sonorium"
 
@@ -98,9 +128,13 @@ def main():
     if args.dry_run:
         print("DRY RUN - No files will be modified")
         print(f"\nShared directory: {shared_dir}")
-        print(f"Mappings to sync:")
-        for src, dst in SYNC_MAPPINGS:
-            print(f"  {src} -> {dst}")
+        print(f"Plugins directory: {plugins_dir}")
+        print(f"\nShared mappings:")
+        for src, dst in SHARED_MAPPINGS:
+            print(f"  shared/{src} -> {dst}")
+        print(f"\nPlugin mappings:")
+        for src, dst in PLUGIN_MAPPINGS:
+            print(f"  plugins/{src} -> plugins/{dst}")
         if sync_standalone:
             print(f"\nWould sync to standalone: {standalone_target}")
         if sync_addon:
@@ -114,7 +148,7 @@ def main():
             print(f"Warning: Standalone target not found at {standalone_target}, skipping")
         else:
             print(f"Syncing to standalone app: {standalone_target}")
-            count = sync_to_target(shared_dir, standalone_target, args.verbose)
+            count = sync_to_target(repo_root, standalone_target, args.verbose)
             print(f"  Synced {count} files")
             total_files += count
 
@@ -123,7 +157,7 @@ def main():
             print(f"Warning: HA addon target not found at {addon_target}, skipping")
         else:
             print(f"Syncing to HA addon: {addon_target}")
-            count = sync_to_target(shared_dir, addon_target, args.verbose)
+            count = sync_to_target(repo_root, addon_target, args.verbose)
             print(f"  Synced {count} files")
             total_files += count
 

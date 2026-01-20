@@ -1,4 +1,4 @@
-name: Build and Release
+﻿name: Build and Release
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - 'v*'  # Trigger on version tags like v0.1.0-alpha, v1.0.0, etc.
 
 permissions:
-  contents: write  # Required for creating releases
+  contents: write  # Required for creating releases and pushing version updates
 
 jobs:
   build:
@@ -36,17 +36,23 @@ jobs:
         run: git fetch --tags --force
         shell: bash
 
-      - name: Verify branch
+      - name: Extract version from tag
+        id: version
         run: |
-          echo "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
-          echo "Current HEAD: $(git rev-parse HEAD)"
-          echo "Tag: ${{ github.ref }}"
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
         shell: bash
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Update all version files
+        run: |
+          python scripts/bump_version.py ${{ steps.version.outputs.VERSION }}
+        shell: bash
 
       - name: Install build dependencies
         run: |
@@ -69,29 +75,23 @@ jobs:
 
       - name: Download Python embeddable
         run: |
-          # Download Python 3.11 embeddable package (64-bit)
           $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
           $pipUrl = "https://bootstrap.pypa.io/get-pip.py"
 
-          # Create python directory
           New-Item -ItemType Directory -Force -Path "python_embed"
 
-          # Download and extract Python embeddable
           Write-Host "Downloading Python embeddable..."
           Invoke-WebRequest -Uri $pythonUrl -OutFile "python_embed.zip"
           Expand-Archive -Path "python_embed.zip" -DestinationPath "python_embed" -Force
           Remove-Item "python_embed.zip"
 
-          # Enable pip by modifying python311._pth
           Write-Host "Enabling pip in embedded Python..."
           $pthFile = "python_embed/python311._pth"
           $pthContent = Get-Content $pthFile
-          # Uncomment import site line and add Lib\site-packages
           $newContent = $pthContent -replace '#import site', 'import site'
           $newContent += "`nLib\site-packages"
           Set-Content -Path $pthFile -Value $newContent
 
-          # Download and run get-pip.py
           Write-Host "Installing pip..."
           Invoke-WebRequest -Uri $pipUrl -OutFile "python_embed/get-pip.py"
           & "python_embed/python.exe" "python_embed/get-pip.py" --no-warn-script-location
@@ -101,49 +101,29 @@ jobs:
       - name: Install core dependencies into embedded Python
         run: |
           Write-Host "Installing core dependencies..."
-
-          # Install all dependencies from requirements.txt
           & "python_embed/python.exe" -m pip install --no-warn-script-location -r app/core/requirements.txt
 
-          # Verify pyatv is installed
           Write-Host "Verifying pyatv installation..."
           & "python_embed/python.exe" -c "import pyatv; print(f'pyatv version: {pyatv.__version__}')"
 
-          # List installed packages
           Write-Host "Installed packages:"
           & "python_embed/python.exe" -m pip list
         shell: pwsh
 
       - name: Create core.zip with embedded Python
         run: |
-          # Create the zip with:
-          # - core/ (source code)
-          # - themes/ (audio themes)
-          # - python/ (embedded Python with all dependencies)
-
-          # Rename python_embed to python (what the launcher expects)
           Rename-Item -Path "python_embed" -NewName "python"
-
-          # Create zip with all three folders
           Compress-Archive -Path "app/core", "app/themes", "python" -DestinationPath core.zip -Force
 
-          # Show zip contents summary
           Write-Host "core.zip created with embedded Python"
           $zipSize = (Get-Item "core.zip").Length / 1MB
           Write-Host "Size: $([math]::Round($zipSize, 2)) MB"
         shell: pwsh
 
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        shell: bash
-
       - name: Get tag message (changelog)
         id: get_changelog
         run: |
-          # Get the annotated tag message (changelog)
           TAG_MESSAGE=$(git tag -l --format='%(contents)' ${GITHUB_REF#refs/tags/})
-          # Use delimiter for multiline output
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
           echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -152,7 +132,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Sonorium ${{ steps.get_version.outputs.VERSION }}
+          name: Sonorium v${{ steps.version.outputs.VERSION }}
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
           files: |
@@ -184,3 +164,12 @@ jobs:
             - AirPlay, DLNA, Chromecast, and Sonos speaker support
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit version updates back to branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION app/core/sonorium/version sonorium_addon/sonorium/version sonorium_addon/config.yaml app/core/version.json app/windows/src/launcher.py
+          git commit -m "chore: sync version to ${{ steps.version.outputs.VERSION }} [skip ci]" || echo "No changes to commit"
+          git push origin HEAD:${{ steps.branch.outputs.SOURCE_BRANCH }}
+        shell: bash
