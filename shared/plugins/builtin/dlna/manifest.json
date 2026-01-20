@@ -1,0 +1,34 @@
+{
+    "id": "dlna",
+    "name": "DLNA/UPnP Speaker",
+    "version": "1.0.0",
+    "description": "Stream audio to DLNA/UPnP media renderers",
+    "author": "Sonorium",
+    "plugin_type": "speaker",
+    "category": "speakers",
+    "homepage": "https://github.com/synssins/sonobleedingedge",
+    "dependencies": {
+        "async-upnp-client": ">=0.36.0",
+        "aiohttp": ">=3.9.0"
+    },
+    "capabilities": ["discovery", "playback", "volume"],
+    "settings_schema": {
+        "type": "object",
+        "properties": {
+            "discovery_timeout": {
+                "type": "number",
+                "title": "Discovery Timeout",
+                "description": "Seconds to wait for SSDP discovery",
+                "default": 5,
+                "minimum": 1,
+                "maximum": 30
+            },
+            "include_all_devices": {
+                "type": "boolean",
+                "title": "Include All Devices",
+                "description": "Include all UPnP devices, not just media renderers",
+                "default": false
+            }
+        }
+    }
+}
