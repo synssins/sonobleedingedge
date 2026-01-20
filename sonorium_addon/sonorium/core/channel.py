@@ -21,7 +21,7 @@ from typing import Optional, TYPE_CHECKING, Generator
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
+from sonorium.recording import SAMPLE_RATE
 import av
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ THEME_CROSSFADE_SAMPLES = int(THEME_CROSSFADE_DURATION * SAMPLE_RATE)
 # Chunk size for silence generation
 CHUNK_SIZE = 1024
 
-# Default output gain
+# Default output gain multiplier for network streams
 DEFAULT_OUTPUT_GAIN = 6.0
 
 # Buffer size for broadcast (number of chunks to keep for late-joining clients)
@@ -62,6 +62,9 @@ class Channel:
 
     id: int
     name: str = ""
+
+    # Output gain for this channel's streams
+    output_gain: float = DEFAULT_OUTPUT_GAIN
 
     # Current theme reference
     _current_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
@@ -199,8 +202,21 @@ class Channel:
         mixed = np.clip(mixed, -32768, 32767).astype(np.int16)
         return mixed.reshape(1, -1)
 
+    def _apply_output_gain(self, chunk: np.ndarray) -> np.ndarray:
+        """Apply output gain to a chunk."""
+        if self.output_gain == 1.0:
+            return chunk
+
+        # Convert to float, apply gain, clip, convert back
+        float_chunk = chunk.astype(np.float32) * self.output_gain
+        float_chunk = np.clip(float_chunk, -32768, 32767)
+        return float_chunk.astype(np.int16)
+
     def _add_to_buffer(self, chunk: np.ndarray):
         """Add a chunk to the broadcast buffer and notify waiting clients."""
+        # Apply output gain before broadcasting
+        chunk = self._apply_output_gain(chunk)
+
         self._chunk_sequence += 1
         self._broadcast_buffer.append((self._chunk_sequence, chunk))
 
@@ -361,6 +377,7 @@ class Channel:
             "current_theme_name": self.current_theme_name,
             "client_count": self._client_count,
             "stream_path": self.stream_path,
+            "output_gain": self.output_gain,
         }
 
 
@@ -380,9 +397,17 @@ class ChannelStream:
         self._last_sequence = channel.get_current_sequence()
 
     def __iter__(self):
-        output = av.open(file='.mp3', mode="w")
+        from io import BytesIO
+        import numpy as np
+
+        # Create in-memory MP3 encoder (stereo for AirPlay compatibility)
+        buffer = BytesIO()
+        output = av.open(buffer, mode="w", format='mp3')
         bitrate = 128_000
-        out_stream = output.add_stream(codec_name='mp3', rate=SAMPLE_RATE, bit_rate=bitrate)
+        out_stream = output.add_stream(codec_name='mp3', rate=SAMPLE_RATE)
+        out_stream.bit_rate = bitrate
+        # Set stereo layout (channels is read-only in newer PyAV)
+        out_stream.layout = 'stereo'
 
         try:
             while self.channel.state == ChannelState.PLAYING or self.channel._generator_running:
@@ -393,8 +418,15 @@ class ChannelStream:
                     for seq, chunk in chunks:
                         self._last_sequence = seq
 
-                        # Encode to MP3
-                        frame = av.AudioFrame.from_ndarray(chunk, format='s16', layout='mono')
+                        # Convert mono to stereo for AirPlay/pyatv compatibility
+                        # chunk shape is (1, samples), need (2, samples)
+                        if chunk.shape[0] == 1:
+                            stereo_chunk = np.vstack([chunk, chunk])
+                        else:
+                            stereo_chunk = chunk
+
+                        # Encode to MP3 (s16p = signed 16-bit planar for stereo arrays)
+                        frame = av.AudioFrame.from_ndarray(stereo_chunk, format='s16p', layout='stereo')
                         frame.rate = SAMPLE_RATE
 
                         for packet in out_stream.encode(frame):
@@ -416,16 +448,17 @@ class ChannelManager:
     Provides channel creation, lookup, and lifecycle management.
     """
 
-    def __init__(self, max_channels: int = 6):
+    def __init__(self, max_channels: int = 4, output_gain: float = DEFAULT_OUTPUT_GAIN):
         self.max_channels = max_channels
+        self.output_gain = output_gain
         self._channels: dict[int, Channel] = {}
         self._lock = threading.Lock()
 
-        # Pre-create all channels
+        # Pre-create all channels (starting from 1)
         for i in range(1, max_channels + 1):
-            self._channels[i] = Channel(id=i)
+            self._channels[i] = Channel(id=i, output_gain=output_gain)
 
-        logger.info(f"ChannelManager initialized with {max_channels} channels")
+        logger.info(f"ChannelManager initialized with {max_channels} channels, gain={output_gain}")
 
     def get_channel(self, channel_id: int) -> Optional[Channel]:
         """Get a channel by ID."""
@@ -453,3 +486,14 @@ class ChannelManager:
             if channel.state == ChannelState.IDLE:
                 return channel
         return None
+
+    def set_output_gain(self, gain: float) -> None:
+        """Set output gain for all channels."""
+        self.output_gain = gain
+        for channel in self._channels.values():
+            channel.output_gain = gain
+        logger.info(f"ChannelManager: Set output gain to {gain}")
+
+    def get_output_gain(self) -> float:
+        """Get current output gain setting."""
+        return self.output_gain

@@ -20,11 +20,14 @@ from sonorium.obs import logger
 
 class SpeakerState(str, Enum):
     """State of a network speaker."""
-    OFFLINE = "offline"       # Not reachable
-    IDLE = "idle"             # Online but not playing
-    PLAYING = "playing"       # Currently playing audio
-    PAUSED = "paused"         # Paused
-    BUFFERING = "buffering"   # Loading/buffering
+    DISCOVERED = "discovered"  # Found on network
+    OFFLINE = "offline"        # Not reachable
+    IDLE = "idle"              # Online but not playing
+    CONNECTING = "connecting"  # Connection in progress
+    PLAYING = "playing"        # Currently playing audio
+    PAUSED = "paused"          # Paused
+    BUFFERING = "buffering"    # Loading/buffering
+    ERROR = "error"            # Connection/streaming error
 
 
 @dataclass
@@ -36,11 +39,12 @@ class NetworkSpeaker:
     """
     id: str                           # Unique identifier (e.g., Chromecast UUID)
     name: str                         # Display name
+    protocol: str = ""                # Protocol type: "chromecast", "airplay", "sonos", "dlna"
     model: str = ""                   # Device model (e.g., "Chromecast Audio")
     manufacturer: str = ""            # Manufacturer (e.g., "Google")
     ip_address: str = ""              # IP address
     port: int = 0                     # Control port
-    state: SpeakerState = SpeakerState.OFFLINE
+    state: SpeakerState = SpeakerState.DISCOVERED
     volume: float = 1.0               # Volume 0.0-1.0
     is_muted: bool = False
     current_media: Optional[str] = None  # Currently playing URL
@@ -52,9 +56,11 @@ class NetworkSpeaker:
         return {
             "id": self.id,
             "name": self.name,
+            "protocol": self.protocol,
             "model": self.model,
             "manufacturer": self.manufacturer,
             "ip_address": self.ip_address,
+            "port": self.port,
             "state": self.state.value,
             "volume": self.volume,
             "is_muted": self.is_muted,
@@ -81,10 +87,15 @@ class SpeakerPlugin(BasePlugin):
     - resume(speaker_id): Resume playback
     - mute(speaker_id, muted): Mute/unmute
     - get_speaker_state(speaker_id): Get current state
+    - get_discovery_identifiers(): mDNS/SSDP service types
     """
 
     # Speaker plugin type identifier
     plugin_type: str = "speaker"
+
+    # Protocol identifier (override in subclass)
+    # Examples: "chromecast", "airplay", "sonos", "dlna"
+    protocol: str = ""
 
     def __init__(self, plugin_dir: Path, settings: dict, audio_path: Optional[Path] = None):
         super().__init__(plugin_dir, settings, audio_path)
@@ -229,6 +240,25 @@ class SpeakerPlugin(BasePlugin):
         """Get current speaker state. Default: return cached state."""
         speaker = self.get_speaker(speaker_id)
         return speaker.state if speaker else None
+
+    def get_discovery_identifiers(self) -> list[str]:
+        """
+        Return mDNS service types or SSDP URNs this plugin discovers.
+
+        Used by core discovery service to route discoveries to plugins.
+
+        Override to specify what network services to scan for.
+
+        Examples:
+            AirPlay: ["_raop._tcp.local.", "_airplay._tcp.local."]
+            Chromecast: ["_googlecast._tcp.local."]
+            DLNA: ["urn:schemas-upnp-org:device:MediaRenderer:1"]
+            Sonos: ["_sonos._tcp.local."]
+
+        Returns:
+            List of service type strings
+        """
+        return []
 
     # --- Discovery control ---
 
