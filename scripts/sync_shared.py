@@ -23,6 +23,7 @@ SYNC_MAPPINGS = [
     # (source in shared/, destination subdirectory)
     # Currently active:
     ("plugins", "plugins"),
+    ("platform", "platform"),   # Platform adapters (PathProvider, ConfigProvider)
     # Future extractions (will activate as we create them):
     ("core", "core"),           # Pure audio engine, themes, sessions
     ("modules", "modules"),     # Optional features (recording, etc.)
