@@ -1,0 +1,33 @@
+{
+    "id": "sonos",
+    "name": "Sonos Speaker",
+    "version": "1.0.0",
+    "description": "Stream audio to Sonos speakers on your network",
+    "author": "Sonorium",
+    "plugin_type": "speaker",
+    "category": "speakers",
+    "homepage": "https://github.com/synssins/sonobleedingedge",
+    "dependencies": {
+        "soco": ">=0.30.0"
+    },
+    "capabilities": ["discovery", "playback", "volume", "groups"],
+    "settings_schema": {
+        "type": "object",
+        "properties": {
+            "discovery_timeout": {
+                "type": "number",
+                "title": "Discovery Timeout",
+                "description": "Seconds to wait for Sonos discovery",
+                "default": 5,
+                "minimum": 1,
+                "maximum": 30
+            },
+            "use_groups": {
+                "type": "boolean",
+                "title": "Use Speaker Groups",
+                "description": "Discover and show Sonos speaker groups",
+                "default": true
+            }
+        }
+    }
+}
