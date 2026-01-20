@@ -1,0 +1,33 @@
+{
+    "id": "linkplay",
+    "name": "Linkplay/Arylic Speaker",
+    "version": "1.0.0",
+    "description": "Stream audio to Linkplay and Arylic devices via HTTP API",
+    "author": "Sonorium",
+    "plugin_type": "speaker",
+    "category": "speakers",
+    "homepage": "https://github.com/synssins/sonobleedingedge",
+    "dependencies": {
+        "aiohttp": ">=3.9.0"
+    },
+    "capabilities": ["discovery", "playback", "volume"],
+    "settings_schema": {
+        "type": "object",
+        "properties": {
+            "discovery_timeout": {
+                "type": "number",
+                "title": "Discovery Timeout",
+                "description": "Seconds to wait for device discovery",
+                "default": 5,
+                "minimum": 1,
+                "maximum": 30
+            },
+            "scan_subnet": {
+                "type": "boolean",
+                "title": "Scan Subnet",
+                "description": "Scan local subnet for Linkplay devices (port 49152)",
+                "default": true
+            }
+        }
+    }
+}
