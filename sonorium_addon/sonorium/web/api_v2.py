@@ -302,6 +302,7 @@ def create_api_router(
     channel_manager=None,
     cycle_manager=None,
     plugin_manager=None,
+    mqtt_manager=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -315,6 +316,7 @@ def create_api_router(
         channel_manager: Optional ChannelManager for channel-based streaming
         cycle_manager: Optional CycleManager for theme cycling
         plugin_manager: Optional PluginManager for plugin endpoints
+        mqtt_manager: Optional MQTT manager for HA entity updates
 
     Returns:
         Configured APIRouter
@@ -440,6 +442,10 @@ def create_api_router(
     @router.put("/sessions/{session_id}")
     async def update_session(session_id: str, request: UpdateSessionRequest) -> SessionResponse:
         """Update an existing session."""
+        # Get old session name to detect changes for MQTT discovery refresh
+        old_session = session_manager.get(session_id)
+        old_name = old_session.name if old_session else None
+
         session, added_speakers, removed_speakers = session_manager.update(
             session_id=session_id,
             theme_id=request.theme_id,
@@ -456,6 +462,21 @@ def create_api_router(
         # Apply live speaker changes if session is playing
         if added_speakers or removed_speakers:
             await session_manager.apply_speaker_changes(session, added_speakers, removed_speakers)
+
+        # Apply volume to speakers if changed and session is playing
+        if request.volume is not None and session.is_playing:
+            speakers = session_manager.get_resolved_speakers(session)
+            if speakers and session_manager.media_controller:
+                volume_level = session.volume / 100.0
+                await session_manager.media_controller.set_volume_multi(speakers, volume_level)
+                logger.info(f"Applied volume {session.volume}% to {len(speakers)} speaker(s)")
+
+        # Refresh MQTT discovery if session name changed (Issue #16)
+        if mqtt_manager and old_name and session.name != old_name:
+            try:
+                await mqtt_manager.refresh_session_discovery(session)
+            except Exception as e:
+                logger.warning(f"Failed to refresh MQTT discovery for renamed session: {e}")
 
         return _session_to_response(session, session_manager)
     
@@ -964,9 +985,12 @@ def create_api_router(
 
         # If enabled_speakers is empty, all are enabled - nothing to do
         if not settings.enabled_speakers:
-            # Need to switch to explicit mode: add all speakers except this one... wait no
             # Actually if empty = all enabled, then enabling one speaker doesn't change anything
             pass
+        elif settings.enabled_speakers == ["__none__"]:
+            # Sentinel value means no speakers enabled - replace with just this speaker
+            settings.enabled_speakers = [entity_id]
+            state_store.save()
         else:
             # Add to enabled list if not already there
             if entity_id not in settings.enabled_speakers:
@@ -1001,6 +1025,11 @@ def create_api_router(
             if entity_id in settings.enabled_speakers:
                 settings.enabled_speakers.remove(entity_id)
 
+        # If enabled_speakers is now empty (user disabled their only speaker),
+        # use sentinel value to indicate "no speakers enabled" (not "all enabled")
+        if not settings.enabled_speakers:
+            settings.enabled_speakers = ["__none__"]
+
         state_store.save()
 
         hierarchy = None
@@ -1016,6 +1045,21 @@ def create_api_router(
         """Enable all speakers (clear the enabled list)."""
         settings = state_store.settings
         settings.enabled_speakers = []  # Empty = all enabled
+        state_store.save()
+
+        hierarchy = None
+        if ha_registry:
+            hierarchy = ha_registry.get_hierarchy_dict()
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.enabled_speakers,
+            hierarchy=hierarchy,
+        )
+
+    @router.post("/settings/speakers/disable-all")
+    async def disable_all_speakers() -> SpeakerSettingsResponse:
+        """Disable all speakers (set to special sentinel value)."""
+        settings = state_store.settings
+        settings.enabled_speakers = ["__none__"]  # Special value = no speakers enabled
         state_store.save()
 
         hierarchy = None
@@ -1554,6 +1598,180 @@ def create_api_router(
             return []
         return plugin_manager.list_plugins()
 
+    # --- Plugin Catalog (Browse & Install from GitHub) ---
+    # NOTE: These routes MUST come before /plugins/{plugin_id} to avoid route conflict
+
+    _catalog_cache: dict = {'data': None, 'timestamp': 0}
+    CATALOG_CACHE_TTL = 3600  # 1 hour
+
+    @router.get("/plugins/catalog")
+    async def get_plugin_catalog():
+        """Fetch available plugins from the GitHub catalog."""
+        import time
+        import aiohttp
+
+        now = time.time()
+
+        if _catalog_cache['data'] and (now - _catalog_cache['timestamp']) < CATALOG_CACHE_TTL:
+            catalog = _catalog_cache['data']
+        else:
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status != 200:
+                            raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: HTTP {resp.status}')
+                        catalog = await resp.json(content_type=None)
+                        _catalog_cache['data'] = catalog
+                        _catalog_cache['timestamp'] = now
+            except Exception as e:
+                logger.error(f'Failed to fetch plugin catalog: {e}')
+                if _catalog_cache['data']:
+                    catalog = _catalog_cache['data']
+                else:
+                    raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: {e}')
+
+        # Enrich with installed status
+        installed_plugins = {}
+        if plugin_manager:
+            for plugin in plugin_manager.plugins.values():
+                installed_plugins[plugin.id] = plugin.version
+
+        enriched_plugins = []
+        for plugin in catalog.get('plugins', []):
+            plugin_copy = dict(plugin)
+            pid = plugin.get('id')
+            if pid in installed_plugins:
+                plugin_copy['installed'] = True
+                plugin_copy['installed_version'] = installed_plugins[pid]
+                plugin_copy['update_available'] = plugin.get('version') != installed_plugins[pid]
+            else:
+                plugin_copy['installed'] = False
+                plugin_copy['installed_version'] = None
+                plugin_copy['update_available'] = False
+            enriched_plugins.append(plugin_copy)
+
+        return {
+            'version': catalog.get('version', 1),
+            'updated': catalog.get('updated'),
+            'plugins': enriched_plugins
+        }
+
+    @router.post("/plugins/install-from-catalog")
+    async def install_plugin_from_catalog(request: Request):
+        """Download and install a plugin from the GitHub catalog."""
+        import aiohttp
+        import zipfile
+        import io
+        import shutil
+
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail='Plugin system not initialized')
+
+        body = await request.json()
+        plugin_id = body.get('plugin_id')
+        if not plugin_id:
+            raise HTTPException(status_code=400, detail='plugin_id is required')
+
+        # Fetch catalog
+        catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail='Failed to fetch catalog')
+                    catalog = await resp.json(content_type=None)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: {e}')
+
+        # Find plugin
+        plugin_info = None
+        for p in catalog.get('plugins', []):
+            if p.get('id') == plugin_id:
+                plugin_info = p
+                break
+
+        if not plugin_info:
+            raise HTTPException(status_code=404, detail=f'Plugin "{plugin_id}" not found in catalog')
+
+        # Download ZIP
+        zip_filename = plugin_info.get('zip_file')
+        if not zip_filename:
+            raise HTTPException(status_code=500, detail='Plugin has no zip_file specified')
+
+        zip_url = f'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/{zip_filename}'
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail=f'Failed to download plugin: HTTP {resp.status}')
+                    content = await resp.read()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f'Failed to download plugin: {e}')
+
+        # Install
+        try:
+            zip_buffer = io.BytesIO(content)
+            with zipfile.ZipFile(zip_buffer, 'r') as zf:
+                file_list = zf.namelist()
+                plugin_py_paths = [f for f in file_list if f.endswith('plugin.py')]
+                if not plugin_py_paths:
+                    raise HTTPException(status_code=400, detail='No plugin.py found in ZIP')
+
+                plugin_py = plugin_py_paths[0]
+                plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
+                target_name = plugin_dir_name.split('/')[0] if plugin_dir_name else plugin_id
+                target_dir = plugin_manager.plugins_dir / target_name
+
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for member in zf.namelist():
+                    if plugin_dir_name and member.startswith(plugin_dir_name + '/'):
+                        target_path = target_dir / member[len(plugin_dir_name) + 1:]
+                    elif plugin_dir_name and member == plugin_dir_name:
+                        continue
+                    else:
+                        target_path = target_dir / member
+
+                    if member.endswith('/'):
+                        target_path.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target_path.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, open(target_path, 'wb') as dst:
+                            dst.write(src.read())
+
+            # Remove from deleted_builtin_plugins if reinstalling a previously deleted builtin
+            # Check both plugin_id and target_name since they might differ
+            deleted_list = plugin_manager.state_store.settings.deleted_builtin_plugins
+            removed_from_deleted = False
+            for name_to_check in [plugin_id, target_name]:
+                if name_to_check in deleted_list:
+                    deleted_list.remove(name_to_check)
+                    removed_from_deleted = True
+                    logger.info(f"Removed '{name_to_check}' from deleted builtins list")
+            if removed_from_deleted:
+                plugin_manager.state_store.save()
+
+            await plugin_manager.reload_plugins()
+
+            return {
+                'status': 'ok',
+                'plugin_id': plugin_id,
+                'name': plugin_info.get('name', plugin_id),
+                'version': plugin_info.get('version'),
+                'message': f'Plugin "{plugin_info.get("name", plugin_id)}" installed successfully'
+            }
+
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail='Invalid ZIP file from catalog')
+        except Exception as e:
+            logger.error(f'Error installing plugin from catalog: {e}')
+            raise HTTPException(status_code=500, detail=f'Failed to install plugin: {e}')
+
+    # --- Individual Plugin Routes ---
+
     @router.get("/plugins/{plugin_id}", response_model=PluginResponse)
     async def get_plugin(plugin_id: str):
         """Get details for a specific plugin."""
@@ -1788,8 +2006,10 @@ def create_api_router(
         2. Unload the plugin
         3. Delete the plugin directory
         4. Remove plugin settings from state
+        5. If builtin, track as deleted to prevent auto-reinstall
         """
         import shutil
+        from sonorium.plugins.loader import get_builtin_plugin_ids
 
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
@@ -1800,6 +2020,10 @@ def create_api_router(
         # Check if plugin exists (either loaded or as directory)
         if not plugin and not plugin_dir.exists():
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+
+        # Check if this is a builtin plugin
+        builtin_ids = get_builtin_plugin_ids()
+        is_builtin = plugin_id in builtin_ids
 
         try:
             # Disable and unload if loaded
@@ -1819,6 +2043,14 @@ def create_api_router(
                 del plugin_manager.state_store.settings.plugin_settings[plugin_id]
             if plugin_id in plugin_manager.state_store.settings.enabled_plugins:
                 plugin_manager.state_store.settings.enabled_plugins.remove(plugin_id)
+
+            # If this was a builtin plugin, track it as deleted to prevent auto-reinstall
+            if is_builtin:
+                deleted_list = plugin_manager.state_store.settings.deleted_builtin_plugins
+                if plugin_id not in deleted_list:
+                    deleted_list.append(plugin_id)
+                    logger.info(f"Marked builtin plugin '{plugin_id}' as deleted")
+
             plugin_manager.state_store.save()
 
             return {

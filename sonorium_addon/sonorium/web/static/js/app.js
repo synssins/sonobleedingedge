@@ -37,7 +37,31 @@ async function init() {
             loadPlugins()
         ]);
         console.log('Data loaded, rendering...');
+
+        // Restore saved view or default to sessions
+        const savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
+
+        // Always render sessions first (needed for session cards)
         renderSessions();
+
+        // Then switch to saved view (showView handles all rendering and UI updates)
+        if (savedView !== 'sessions') {
+            showView(savedView);
+        }
+
+        // Ensure Settings menu is expanded when on a settings page (backup for showView)
+        if (savedView.startsWith('settings')) {
+            const settingsSection = document.getElementById('settings-nav-section');
+            if (settingsSection) {
+                settingsSection.classList.add('expanded');
+                const header = settingsSection.querySelector('.nav-section-header');
+                if (header) {
+                    header.classList.add('expanded');
+                    header.classList.add('active');
+                }
+            }
+        }
+
         updatePlayingBadge();
 
         // Start heartbeat to track browser connection
@@ -305,11 +329,21 @@ async function refreshThemes() {
 }
 
 async function loadSpeakerHierarchy() {
-    speakerHierarchy = await api('GET', '/speakers/hierarchy');
+    try {
+        speakerHierarchy = await api('GET', '/speakers/hierarchy');
+    } catch (error) {
+        console.error('Failed to load speaker hierarchy:', error);
+        speakerHierarchy = { floors: [], areas: [], speakers: [], enabled_speakers: [] };
+    }
 }
 
 async function loadSpeakerGroups() {
-    speakerGroups = await api('GET', '/groups');
+    try {
+        speakerGroups = await api('GET', '/groups');
+    } catch (error) {
+        console.error('Failed to load speaker groups:', error);
+        speakerGroups = [];
+    }
 }
 
 async function loadEnabledSpeakers() {
@@ -334,6 +368,8 @@ async function loadChannels() {
 // View Navigation
 function showView(viewName) {
     currentView = viewName;
+    // Persist view selection across page refreshes
+    localStorage.setItem('sonorium_currentView', viewName);
 
     // Update nav items - clear all active states
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -355,6 +391,40 @@ function showView(viewName) {
             const header = parentSection.querySelector('.nav-section-header');
             if (header) header.classList.add('active');
         }
+    }
+
+    // Keep Settings menu expanded when on any settings page
+    const settingsSection = document.getElementById('settings-nav-section');
+    if (settingsSection) {
+        if (viewName.startsWith('settings')) {
+            settingsSection.classList.add('expanded');
+            const header = settingsSection.querySelector('.nav-section-header');
+            if (header) {
+                header.classList.add('expanded');
+                header.classList.add('active');
+            }
+            // Set active state on the correct sub-item
+            const subItems = settingsSection.querySelectorAll('.nav-sub-item');
+            subItems.forEach(item => {
+                if (item.getAttribute('onclick')?.includes(`'${viewName}'`)) {
+                    item.classList.add('active');
+                }
+            });
+        } else {
+            // Collapse settings menu when not on a settings page
+            settingsSection.classList.remove('expanded');
+            const header = settingsSection.querySelector('.nav-section-header');
+            if (header) header.classList.remove('expanded');
+        }
+    }
+
+    // Set active state on nav items when called without event (e.g., page load)
+    if (!event || !event.currentTarget) {
+        document.querySelectorAll('.nav-item').forEach(item => {
+            if (item.getAttribute('onclick')?.includes(`'${viewName}'`)) {
+                item.classList.add('active');
+            }
+        });
     }
 
     // Show/hide views
@@ -429,8 +499,7 @@ function showView(viewName) {
     }
     if (viewName === 'settings-audio') renderAudioSettings();
     if (viewName === 'settings-speakers') {
-        loadLocalAudioDevices();
-        loadNetworkSpeakers();
+        renderSettingsSpeakerTree();
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
@@ -840,12 +909,19 @@ async function updateSessionVolume(sessionId, volume) {
 
 function updateSessionVolumeDisplay(sessionId, value) {
     // Update the volume display span in real-time while dragging
-    const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+    // Use CSS.escape for safe attribute selector with any session ID format
+    const escapedId = CSS.escape(sessionId);
+    const card = document.querySelector(`.session-card[data-session-id="${escapedId}"]`);
     if (card) {
         const valueSpan = card.querySelector('.volume-value');
         if (valueSpan) {
             valueSpan.textContent = `${value}%`;
         }
+    }
+    // Also update in session list if visible (for consistency)
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+        session.volume = parseInt(value);
     }
 }
 
@@ -1227,7 +1303,13 @@ let selectedSpeakerGroupId = null;
 
 function renderSpeakerGroupSelect() {
     const select = document.getElementById('session-speaker-group');
+    const groupField = document.getElementById('speaker-group-field');
     if (!select) return;
+
+    // Only show speaker group dropdown if groups exist
+    if (groupField) {
+        groupField.style.display = speakerGroups.length > 0 ? 'block' : 'none';
+    }
 
     // Build options
     let html = '<option value="">-- Select manually below --</option>';
@@ -1311,6 +1393,7 @@ document.addEventListener('click', function(event) {
 // Speakers View
 function renderSpeakersList() {
     const container = document.getElementById('speaker-list-content');
+    if (!container) return; // Guard against missing element
     if (!speakerHierarchy) {
         container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
         return;
@@ -1322,7 +1405,79 @@ function renderSpeakersList() {
         return;
     }
 
-    container.innerHTML = allSpeakers.map(speaker => `
+    let html = '';
+
+    // Render floors with areas and speakers
+    for (const floor of speakerHierarchy.floors || []) {
+        if (floor.areas && floor.areas.length > 0) {
+            html += `
+                <div class="speaker-group">
+                    <div class="speaker-group-header">
+                        <span class="speaker-group-icon">🏢</span>
+                        <span class="speaker-group-name">${escapeHtml(floor.name)}</span>
+                        <span class="speaker-group-count">${floor.areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0)} speaker${floor.areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0) !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="speaker-group-content">
+                        ${floor.areas.map(area => renderAreaSpeakers(area)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Render unassigned areas
+    for (const area of speakerHierarchy.unassigned_areas || []) {
+        html += `
+            <div class="speaker-group">
+                <div class="speaker-group-header">
+                    <span class="speaker-group-icon">🏠</span>
+                    <span class="speaker-group-name">${escapeHtml(area.name)}</span>
+                    <span class="speaker-group-count">${area.speakers?.length || 0} speaker${area.speakers?.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="speaker-group-content">
+                    ${(area.speakers || []).map(speaker => renderSpeakerItem(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Render unassigned speakers
+    if (speakerHierarchy.unassigned_speakers && speakerHierarchy.unassigned_speakers.length > 0) {
+        html += `
+            <div class="speaker-group">
+                <div class="speaker-group-header">
+                    <span class="speaker-group-icon">📦</span>
+                    <span class="speaker-group-name">Unassigned Speakers</span>
+                    <span class="speaker-group-count">${speakerHierarchy.unassigned_speakers.length} speaker${speakerHierarchy.unassigned_speakers.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="speaker-group-content">
+                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSpeakerItem(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+function renderAreaSpeakers(area) {
+    if (!area.speakers || area.speakers.length === 0) return '';
+
+    return `
+        <div class="speaker-subgroup">
+            <div class="speaker-subgroup-header">
+                <span class="speaker-subgroup-icon">🏠</span>
+                <span class="speaker-subgroup-name">${escapeHtml(area.name)}</span>
+            </div>
+            <div class="speaker-subgroup-content">
+                ${area.speakers.map(speaker => renderSpeakerItem(speaker)).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderSpeakerItem(speaker) {
+    return `
         <div class="speaker-list-item">
             <div class="speaker-list-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1333,10 +1488,9 @@ function renderSpeakersList() {
             </div>
             <div class="speaker-list-info">
                 <div class="speaker-list-name">${escapeHtml(speaker.name)}</div>
-                <div class="speaker-list-area">${speaker.area || 'Unassigned'}</div>
             </div>
         </div>
-    `).join('');
+    `;
 }
 
 function getAllSpeakersFlat() {
@@ -2542,19 +2696,31 @@ function getSelectedEditCategories() {
 
 async function saveThemeMetadata() {
     const themeId = document.getElementById('theme-edit-id').value;
+    const newName = document.getElementById('theme-edit-name').value.trim();
     const description = document.getElementById('theme-edit-description').value.trim();
     const icon = document.getElementById('theme-edit-icon').value.trim();
     const selectedCategories = getSelectedEditCategories();
 
+    if (!newName) {
+        showToast('Please enter a theme name', 'warning');
+        return;
+    }
+
     try {
+        // Check if name changed and rename if needed
+        const theme = themes.find(t => t.id === themeId);
+        if (theme && theme.name !== newName) {
+            await api('PUT', `/themes/${themeId}/rename`, { name: newName });
+        }
+
         // Save description and icon
         await api('PUT', `/themes/${themeId}/metadata`, { description, icon });
         // Save categories
         await api('POST', `/themes/${themeId}/categories`, { categories: selectedCategories });
 
         // Update local state
-        const theme = themes.find(t => t.id === themeId);
         if (theme) {
+            theme.name = newName;
             theme.description = description;
             theme.icon = icon || null;  // Store null if empty (for auto-detect)
             theme.categories = selectedCategories;
@@ -2941,9 +3107,9 @@ async function loadAudioSettings() {
         const result = await api('GET', '/settings');
         if (result && !result.error) {
             audioSettings = {
-                crossfade_duration: result.crossfade_duration || 3.0,
-                default_volume: result.default_volume || 60,
-                master_gain: result.master_gain || 60
+                crossfade_duration: result.crossfade_duration ?? 3.0,
+                default_volume: result.default_volume ?? 60,
+                master_gain: result.master_gain ?? 60
             };
             applyAudioSettingsToUI();
         }
@@ -3266,25 +3432,179 @@ async function stopNetworkSpeaker(speakerId, pluginId) {
     }
 }
 
-// Legacy functions (kept for compatibility but not used in standalone)
+// Settings speaker tree with floor/area hierarchy
 function renderSettingsSpeakerTree() {
-    // No longer used in standalone - replaced by local audio devices
+    const container = document.getElementById('settings-speaker-tree');
+    if (!container) return;
+
+    if (!speakerHierarchy) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading speakers...</div>';
+        return;
+    }
+
+    const allSpeakers = getAllSpeakersFlat();
+    if (allSpeakers.length === 0) {
+        container.innerHTML = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+        return;
+    }
+
+    // Get enabled speakers list (empty = all enabled for backwards compat)
+    const isAllEnabled = !enabledSpeakers || enabledSpeakers.length === 0;
+
+    let html = '';
+
+    // Render floors with their areas and speakers
+    for (const floor of speakerHierarchy.floors || []) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    </svg>
+                    <span>${escapeHtml(floor.name)}</span>
+                </div>
+                <div class="settings-areas">
+                    ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Unassigned areas (areas without a floor)
+    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    </svg>
+                    <span>Other Areas</span>
+                </div>
+                <div class="settings-areas">
+                    ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Unassigned speakers (speakers without an area)
+    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>Unassigned</span>
+                </div>
+                <div class="settings-speakers" style="margin-left: 1.5rem;">
+                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (!html) {
+        html = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+    }
+
+    container.innerHTML = html;
+}
+
+function renderSettingsArea(area, isAllEnabled) {
+    return `
+        <div class="settings-area">
+            <div class="settings-area-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                </svg>
+                <span>${escapeHtml(area.name)}</span>
+            </div>
+            <div class="settings-speakers">
+                ${(area.speakers || []).map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsSpeaker(speaker, isAllEnabled) {
+    const isEnabled = isAllEnabled || (enabledSpeakers || []).includes(speaker.entity_id);
+    const ipDisplay = speaker.ip_address ? `<span class="speaker-ip">${escapeHtml(speaker.ip_address)}</span>` : '';
+    return `
+        <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
+            <label class="toggle-switch">
+                <input type="checkbox" ${isEnabled ? 'checked' : ''}
+                       onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
+            <div class="settings-speaker-info">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                    <circle cx="12" cy="14" r="4"/>
+                    <line x1="12" y1="6" x2="12.01" y2="6"/>
+                </svg>
+                <span>${escapeHtml(speaker.name)}</span>
+                ${ipDisplay}
+            </div>
+        </div>
+    `;
 }
 
 async function toggleSpeakerEnabled(entityId, enabled) {
-    // No-op for standalone
+    try {
+        const endpoint = enabled ? '/settings/speakers/enable' : '/settings/speakers/disable';
+        await api('POST', endpoint, { entity_id: entityId });
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
 }
 
 async function enableAllSpeakers() {
-    // No-op for standalone
+    try {
+        await api('POST', '/settings/speakers/enable-all');
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
+        showToast('All speakers enabled', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 async function disableAllSpeakers() {
-    // No-op for standalone
+    try {
+        await api('POST', '/settings/speakers/disable-all');
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
+        showToast('All speakers disabled', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 async function refreshSpeakersFromHA() {
-    // No-op for standalone - replaced by refreshNetworkSpeakers
+    const container = document.getElementById('settings-speaker-tree');
+    if (container) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Refreshing from Home Assistant...</div>';
+    }
+
+    try {
+        const result = await api('POST', '/speakers/refresh');
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
+        showToast(`Found ${result.total_speakers || 0} speakers`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
 }
 
 // Status View
@@ -3710,11 +4030,157 @@ async function loadPlugins() {
     }
 }
 
+// Track active plugins tab
+let activePluginsTab = 'installed';
+let pluginCatalog = null;
+
 function renderPluginsView() {
     const container = document.getElementById('plugins-list');
     if (!container) return;
 
-    // Upload section always visible at top
+    // Tabs for Installed vs Browse
+    let html = `
+        <div class="plugins-tabs">
+            <button class="plugins-tab ${activePluginsTab === 'installed' ? 'active' : ''}"
+                    onclick="switchPluginsTab('installed')">
+                Installed (${plugins.length})
+            </button>
+            <button class="plugins-tab ${activePluginsTab === 'browse' ? 'active' : ''}"
+                    onclick="switchPluginsTab('browse')">
+                Browse Catalog
+            </button>
+        </div>
+    `;
+
+    if (activePluginsTab === 'browse') {
+        html += renderPluginsCatalog();
+    } else {
+        html += renderInstalledPlugins();
+    }
+
+    container.innerHTML = html;
+
+    // Load catalog if on browse tab and not loaded
+    if (activePluginsTab === 'browse' && !pluginCatalog) {
+        loadPluginCatalog();
+    }
+}
+
+function switchPluginsTab(tab) {
+    activePluginsTab = tab;
+    renderPluginsView();
+}
+
+async function loadPluginCatalog() {
+    const catalogContainer = document.getElementById('plugin-catalog-content');
+    if (!catalogContainer) return;
+
+    catalogContainer.innerHTML = '<div class="loading-spinner">Loading catalog...</div>';
+
+    try {
+        const response = await api('GET', '/plugins/catalog');
+        pluginCatalog = response;
+        renderPluginsView();
+    } catch (error) {
+        catalogContainer.innerHTML = `
+            <div class="error-state" style="padding: 2rem; text-align: center;">
+                <p style="color: var(--error);">Failed to load catalog: ${escapeHtml(error.message)}</p>
+                <button class="btn btn-secondary" onclick="loadPluginCatalog()" style="margin-top: 1rem;">
+                    Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+function renderPluginsCatalog() {
+    if (!pluginCatalog) {
+        return `
+            <div id="plugin-catalog-content">
+                <div class="loading-spinner">Loading catalog...</div>
+            </div>
+        `;
+    }
+
+    const catalogPlugins = pluginCatalog.plugins || [];
+    if (catalogPlugins.length === 0) {
+        return `
+            <div class="empty-state" style="padding: 2rem;">
+                <h3>No Plugins Available</h3>
+                <p style="color: var(--text-muted);">The plugin catalog is empty.</p>
+            </div>
+        `;
+    }
+
+    let html = `
+        <div id="plugin-catalog-content">
+            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+                Available plugins from the Sonorium catalog. Click Install to add a plugin.
+            </p>
+    `;
+
+    for (const plugin of catalogPlugins) {
+        const isInstalled = plugin.installed;
+        const hasUpdate = plugin.update_available;
+
+        html += `
+            <div class="plugin-card catalog-plugin ${isInstalled ? 'installed' : ''}">
+                <div class="plugin-header">
+                    <div class="plugin-info">
+                        <h4>${escapeHtml(plugin.name)}</h4>
+                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
+                        ${plugin.category ? `<span class="plugin-category">${escapeHtml(plugin.category)}</span>` : ''}
+                        ${isInstalled ? `<span class="plugin-status enabled">Installed${hasUpdate ? ' (Update Available)' : ''}</span>` : ''}
+                    </div>
+                    <div class="plugin-actions">
+                        ${isInstalled && hasUpdate ? `
+                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                Update
+                            </button>
+                        ` : isInstalled ? `
+                            <button class="btn btn-sm btn-secondary" disabled>
+                                Installed
+                            </button>
+                        ` : `
+                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                Install
+                            </button>
+                        `}
+                    </div>
+                </div>
+                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
+                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
+            </div>
+        `;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+async function installFromCatalog(pluginId) {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Installing...';
+
+    try {
+        const result = await api('POST', '/plugins/install-from-catalog', { plugin_id: pluginId });
+        showToast(`${result.name || pluginId} installed successfully`, 'success');
+
+        // Refresh plugins list and catalog
+        await loadPlugins();
+        pluginCatalog = null;  // Force refresh
+        await loadPluginCatalog();
+    } catch (error) {
+        showToast(`Failed to install: ${error.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+function renderInstalledPlugins() {
+    // Upload section
     let html = `
         <div class="plugin-upload-section">
             <h4>Install Plugin</h4>
@@ -3761,11 +4227,10 @@ function renderPluginsView() {
                     <path d="M2 12l10 5 10-5"/>
                 </svg>
                 <h3>No Plugins Installed</h3>
-                <p style="color: var(--text-muted);">Upload a plugin or install manually to /config/sonorium/plugins/</p>
+                <p style="color: var(--text-muted);">Upload a plugin or check the Browse Catalog tab</p>
             </div>
         `;
-        container.innerHTML = html;
-        return;
+        return html;
     }
 
     html += '<h4 style="margin-top: 1.5rem; margin-bottom: 1rem;">Installed Plugins</h4>';
@@ -3809,7 +4274,7 @@ function renderPluginsView() {
         `;
     }
 
-    container.innerHTML = html;
+    return html;
 }
 
 function renderPluginUI(plugin) {
@@ -3971,7 +4436,7 @@ async function uploadPlugin(file) {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch(BASE_PATH + '/plugins/upload', {
+        const response = await fetch(BASE_PATH + '/api/plugins/upload', {
             method: 'POST',
             body: formData
         });
@@ -3982,7 +4447,8 @@ async function uploadPlugin(file) {
             throw new Error(result.detail || 'Upload failed');
         }
 
-        showToast(`Plugin "${result.name}" installed successfully!`, 'success');
+        const pluginName = result.plugin?.name || 'Unknown';
+        showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
         if (statusEl) statusEl.textContent = '';
 
         // Reload plugins list
@@ -4008,8 +4474,9 @@ async function uninstallPlugin(pluginId, pluginName) {
         await api('DELETE', `/plugins/${pluginId}`);
         showToast(`Plugin "${pluginName}" uninstalled successfully`, 'success');
 
-        // Reload plugins list
+        // Reload plugins list and clear catalog cache so it refreshes
         await loadPlugins();
+        pluginCatalog = null;  // Force catalog to re-fetch and update installed status
         renderPluginsView();
 
     } catch (error) {

@@ -263,6 +263,7 @@ class ApiSonorium(api.Base):
                 channel_manager=self._channel_manager,
                 cycle_manager=self._cycle_manager,
                 plugin_manager=self._plugin_manager,
+                mqtt_manager=self._mqtt_manager,
             )
             self.app.include_router(api_router)
             

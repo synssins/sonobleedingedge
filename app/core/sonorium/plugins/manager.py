@@ -18,6 +18,7 @@ from sonorium.plugins.loader import (
     instantiate_plugin,
     save_manifest,
 )
+from sonorium.plugins.events import EventTypes, get_event_bus
 from sonorium.obs import logger
 
 if TYPE_CHECKING:
@@ -127,10 +128,29 @@ class PluginManager:
             self.plugins[plugin.id] = plugin
             logger.info(f"Loaded plugin: {plugin.name} ({plugin.id})")
 
+            # Emit plugin loaded event
+            try:
+                event_bus = get_event_bus()
+                await event_bus.emit(
+                    EventTypes.PLUGIN_LOADED,
+                    {"plugin_id": plugin.id, "plugin_name": plugin.name},
+                )
+            except Exception as e:
+                logger.debug(f"Could not emit plugin loaded event: {e}")
+
             return plugin
 
         except Exception as e:
             logger.error(f"Failed to load plugin from {plugin_dir}: {e}")
+            # Emit plugin error event
+            try:
+                event_bus = get_event_bus()
+                await event_bus.emit(
+                    EventTypes.PLUGIN_ERROR,
+                    {"plugin_dir": str(plugin_dir), "error": str(e)},
+                )
+            except Exception:
+                pass
             return None
 
     async def reload_plugins(self) -> None:
@@ -151,10 +171,22 @@ class PluginManager:
         if plugin is None:
             return
 
+        plugin_name = plugin.name
         try:
             if plugin.enabled:
                 await plugin.on_disable()
             await plugin.on_unload()
+
+            # Emit plugin unloaded event
+            try:
+                event_bus = get_event_bus()
+                await event_bus.emit(
+                    EventTypes.PLUGIN_UNLOADED,
+                    {"plugin_id": plugin_id, "plugin_name": plugin_name},
+                )
+            except Exception as e:
+                logger.debug(f"Could not emit plugin unloaded event: {e}")
+
         except Exception as e:
             logger.error(f"Error unloading plugin {plugin_id}: {e}")
 
@@ -200,6 +232,17 @@ class PluginManager:
                 self.config.save()
 
             logger.info(f"Enabled plugin: {plugin.name}")
+
+            # Emit plugin activated event
+            try:
+                event_bus = get_event_bus()
+                await event_bus.emit(
+                    EventTypes.PLUGIN_ACTIVATED,
+                    {"plugin_id": plugin_id, "plugin_name": plugin.name},
+                )
+            except Exception as e:
+                logger.debug(f"Could not emit plugin activated event: {e}")
+
             return True
 
         except Exception as e:
@@ -235,6 +278,17 @@ class PluginManager:
                 self.config.save()
 
             logger.info(f"Disabled plugin: {plugin.name}")
+
+            # Emit plugin deactivated event
+            try:
+                event_bus = get_event_bus()
+                await event_bus.emit(
+                    EventTypes.PLUGIN_DEACTIVATED,
+                    {"plugin_id": plugin_id, "plugin_name": plugin.name},
+                )
+            except Exception as e:
+                logger.debug(f"Could not emit plugin deactivated event: {e}")
+
             return True
 
         except Exception as e:

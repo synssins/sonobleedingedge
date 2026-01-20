@@ -3971,7 +3971,7 @@ async function uploadPlugin(file) {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch(BASE_PATH + '/plugins/upload', {
+        const response = await fetch(BASE_PATH + '/api/plugins/upload', {
             method: 'POST',
             body: formData
         });
@@ -3982,7 +3982,8 @@ async function uploadPlugin(file) {
             throw new Error(result.detail || 'Upload failed');
         }
 
-        showToast(`Plugin "${result.name}" installed successfully!`, 'success');
+        const pluginName = result.plugin?.name || 'Unknown';
+        showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
         if (statusEl) statusEl.textContent = '';
 
         // Reload plugins list

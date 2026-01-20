@@ -12,7 +12,7 @@ Sonorium lets you create immersive ambient audio environments. Stream richly lay
 
 Download and run without any dependencies. Perfect for desktop ambient sound.
 
-**[Download Latest Release](https://github.com/synssins/sonorium/releases)** | **[Installation Guide](https://github.com/synssins/sonorium/wiki/Standalone-App)**
+**[Download Latest Release](https://github.com/synssins/sonobleedingedge/releases)** | **[Installation Guide](https://github.com/synssins/sonobleedingedge/wiki/Standalone-App)**
 
 - Single portable executable—no installation required
 - Local audio playback through your default speakers
@@ -23,7 +23,7 @@ Download and run without any dependencies. Perfect for desktop ambient sound.
 
 Integrate with your smart home for whole-house audio.
 
-[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium.dev)
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonobleedingedge)
 
 - One-click install from addon store
 - Use any Home Assistant media_player
@@ -58,44 +58,60 @@ Configure speakers, volume defaults, and other preferences.
 
 ## What's New
 
+### Home Assistant Addon v1.2.83
+
+#### Plugin Browser & Catalog
+- **Browse Available Plugins** - New "Browse Catalog" tab in Settings → Plugins lets you discover and install plugins directly from the Sonorium plugin repository with one click.
+- **One-Click Install** - Install plugins without manually downloading ZIP files. The catalog shows installed status and available updates.
+
+#### UI Improvements
+- **Page Refresh Persistence** - Refreshing the browser now stays on your current page instead of returning to Channels view.
+- **Settings Menu Stays Expanded** - When viewing any Settings sub-page, the Settings menu remains expanded through page refreshes.
+- **Speaker IP Addresses** - The Settings → Speakers page now displays each speaker's IP address.
+
+#### Bug Fixes
+- **MQTT Entity Compatibility** - Updated for Home Assistant Core 2026.4+ compatibility.
+- **Plugin Catalog Refresh** - Uninstalling a plugin now immediately updates the catalog's "Installed" status.
+
+### Home Assistant Addon v1.2.70
+
+- **Renamed Sonos Entity Support** - Sonos speakers are now detected using Home Assistant's entity registry `platform` field rather than relying on the entity_id containing "sonos". Users who have renamed their Sonos entities will now have them properly detected.
+- **Device-Inherited Area Fix** - Speakers assigned to an area via their parent device (rather than directly on the entity) now properly display their area instead of "Unassigned".
+
+### Home Assistant Addon v1.2.67
+
+- **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended.
+
+### Home Assistant Addon v1.2.66
+
+#### Google Cast Streaming Fixed
+- **HA API Fallback** - When Cast device IP cannot be discovered (e.g., device on different VLAN), Sonorium now falls back to Home Assistant's `media_player.play_media` service. This allows Cast streaming to work across VLANs without manual IP configuration.
+- **mDNS Discovery** - Added zeroconf/mDNS discovery as an additional IP resolution method for Cast devices on the same network segment.
+- **Improved Device Detection** - Broader Cast device recognition (Nest Hub, Chromecast, Google Home variants).
+
+#### Sonos WebSocket Fix
+- **Large Installation Support** - Fixed "message too big" error that occurred when querying device registry in Home Assistant installations with many devices. Increased WebSocket message limit from 1MB to 10MB.
+
+#### Settings → Speakers UI Fix
+- **Restored Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page showed a spinning circle instead of the proper floor/area/speaker tree view.
+
+#### Sparse Playback Timing
+- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back.
+
 ### Windows App v0.2.48-dev (Beta)
 
-> ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonorium.dev) for testing. Please report issues!
+> ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonobleedingedge.dev) for testing. Please report issues!
 
 - **HEOS Speaker Support (Beta)** - Denon/Marantz HEOS speakers discovered and controlled via CLI protocol
 - **HEOS Discovery** - Automatic detection of HEOS devices via SSDP and mDNS
 - **pyheos Integration** - Uses pyheos library for reliable HEOS communication (falls back to raw telnet)
-
-### Windows App v0.2.47
-
-- **Sonos Speaker Support** - Full Sonos integration using SoCo library for direct device communication
-- **Arylic/Linkplay HTTP API** - Reliable streaming via native HTTP API (more stable than AirPlay)
-- **Configuration Preservation** - Launcher settings now persist correctly when core saves changes
-- **Sparse Playback Timing** - Fixed occasional sounds playing immediately at theme start
-- **Track Level Fixes** - Tracks start at correct volume when switching themes
-- **Audio Encoding** - Fixed PyAV frame format for proper stereo output
-
-### Home Assistant Addon v1.2.40
-
-- **Dashboard Integration** - MQTT entities for full dashboard control (session select, theme/preset dropdowns, play/stop, volume)
-- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
-- **Reliable Entity Discovery** - Fixed timing issues where entities showed "unavailable" after restart
-- **Auto-Session Selection** - First session auto-selected on startup for immediate control
-- **Morning Alarms** - Use HA automations to wake up to ambient sounds
-
-### Home Assistant Addon v1.2.17
-
-- **Direct Sonos Support** - Native streaming using SoCo library
-- **Automatic Stream URL** - Auto-detects HA IP address for stream URL
-- **Sparse Playback Timing** - Fixed occasional sounds playing immediately at theme start
-- **Track Level Fixes** - Proper volume levels when switching themes
 
 ---
 
 ## Features
 
 ### Multi-Zone Audio
-- **Multiple Channels**: Run up to 6 independent audio channels simultaneously
+- **Multiple Channels**: Run up to 10 independent audio channels simultaneously (configurable)
 - **Per-Channel Themes**: Each channel plays its own theme
 - **Flexible Speaker Selection**: Target individual speakers, entire rooms, floors, or custom speaker groups
 - **Live Speaker Management**: Add or remove speakers from active channels without interrupting playback
@@ -124,6 +140,12 @@ Fine-tune how each audio file plays within a theme:
 - **Quick Switching** - Select presets directly on channel cards
 - **Import/Export** - Share presets with the community
 
+### Home Assistant Dashboard Integration (Addon)
+- **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
+- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
+- **Status Sensors** - See playback status and assigned speakers from your dashboard
+- **Automation Support** - Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
+
 ### Modern Web Interface
 - **Responsive Design**: Works on desktop and mobile
 - **Dark Theme**: Easy on the eyes
@@ -144,7 +166,7 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ### Standalone App
 
-1. **Download** `Sonorium.exe` from the [Releases page](https://github.com/synssins/sonorium/releases)
+1. **Download** `Sonorium.exe` from the [Releases page](https://github.com/synssins/sonobleedingedge/releases)
 2. **Run** the executable (click "More info" → "Run anyway" if Windows SmartScreen appears)
 3. **Create** a session, select a theme and speakers
 4. **Play** and enjoy your ambient soundscape
@@ -159,16 +181,16 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ## Documentation
 
-Full documentation is available in the **[Wiki](https://github.com/synssins/sonorium/wiki)**:
+Full documentation is available in the **[Wiki](https://github.com/synssins/sonobleedingedge/wiki)**:
 
-- [Getting Started](https://github.com/synssins/sonorium/wiki/Getting-Started) - Home Assistant installation
-- [Standalone App](https://github.com/synssins/sonorium/wiki/Standalone-App) - Windows app guide with architecture details
-- [Themes](https://github.com/synssins/sonorium/wiki/Themes) - Creating and organizing themes
-- [Track Settings](https://github.com/synssins/sonorium/wiki/Track-Settings) - Playback modes explained
-- [Presets](https://github.com/synssins/sonorium/wiki/Presets) - Saving track configurations
-- [Speakers](https://github.com/synssins/sonorium/wiki/Speakers) - Speaker setup and management
-- [API Reference](https://github.com/synssins/sonorium/wiki/API-Reference) - REST API for automation
-- [Troubleshooting](https://github.com/synssins/sonorium/wiki/Troubleshooting) - Common issues
+- [Getting Started](https://github.com/synssins/sonobleedingedge/wiki/Getting-Started) - Home Assistant installation
+- [Standalone App](https://github.com/synssins/sonobleedingedge/wiki/Standalone-App) - Windows app guide with architecture details
+- [Themes](https://github.com/synssins/sonobleedingedge/wiki/Themes) - Creating and organizing themes
+- [Track Settings](https://github.com/synssins/sonobleedingedge/wiki/Track-Settings) - Playback modes explained
+- [Presets](https://github.com/synssins/sonobleedingedge/wiki/Presets) - Saving track configurations
+- [Speakers](https://github.com/synssins/sonobleedingedge/wiki/Speakers) - Speaker setup and management
+- [API Reference](https://github.com/synssins/sonobleedingedge/wiki/API-Reference) - REST API for automation
+- [Troubleshooting](https://github.com/synssins/sonobleedingedge/wiki/Troubleshooting) - Common issues
 
 ## Supported Formats
 
@@ -187,7 +209,9 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 - *Coming soon: AirPlay (other devices), Chromecast*
 
 ### Home Assistant Addon
-- Any media_player entity in Home Assistant (including HEOS via HA's native integration)
+- Any media_player entity in Home Assistant
+- **Google Cast** (Chromecast, Nest Hub, Google Home) - with HA API fallback for cross-VLAN setups
+- **Sonos** - Native streaming via SoCo library
 - Organized by floors, areas, and custom groups
 
 ## API Reference

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from sonorium.obs import logger
-from sonorium.utils import call_ha_service
+from sonorium.ha.utils import call_ha_service
 
 from haco.control import Control
 from haco.number import Number

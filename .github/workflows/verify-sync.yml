@@ -1,0 +1,63 @@
+name: Verify Shared Code Sync
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  verify-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run sync script
+        run: python scripts/sync_shared.py --verbose
+
+      - name: Check for uncommitted changes
+        run: |
+          if git diff --exit-code; then
+            echo "✓ Shared code is in sync"
+          else
+            echo "ERROR: shared/ is out of sync with deployment targets!"
+            echo ""
+            echo "The following files differ:"
+            git diff --name-only
+            echo ""
+            echo "To fix this locally, run:"
+            echo "  python scripts/sync_shared.py"
+            echo "  git add -A && git commit --amend"
+            echo ""
+            echo "Or set up the pre-commit hook:"
+            echo "  python scripts/setup_hooks.py"
+            exit 1
+          fi
+
+      - name: Verify plugin files exist
+        run: |
+          echo "=== Checking standalone plugins ==="
+          test -f app/core/sonorium/plugins/__init__.py || (echo "Missing standalone plugins/__init__.py" && exit 1)
+          test -f app/core/sonorium/plugins/base.py || (echo "Missing standalone plugins/base.py" && exit 1)
+          echo "✓ Standalone plugins present"
+
+          echo ""
+          echo "=== Checking HA addon plugins ==="
+          test -f sonorium_addon/sonorium/plugins/__init__.py || (echo "Missing addon plugins/__init__.py" && exit 1)
+          test -f sonorium_addon/sonorium/plugins/base.py || (echo "Missing addon plugins/base.py" && exit 1)
+          echo "✓ HA addon plugins present"
+
+      - name: Summary
+        run: |
+          echo "## Sync Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✓ shared/ is correctly synced to:" >> $GITHUB_STEP_SUMMARY
+          echo "- app/core/sonorium/" >> $GITHUB_STEP_SUMMARY
+          echo "- sonorium_addon/sonorium/" >> $GITHUB_STEP_SUMMARY

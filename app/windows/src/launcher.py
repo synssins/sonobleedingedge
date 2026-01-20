@@ -105,13 +105,13 @@ def get_logger() -> logging.Logger:
     return _logger
 
 
-WIKI_URL = "https://github.com/synssins/sonorium/wiki"
-REPO_URL = "https://github.com/synssins/sonorium"
+WIKI_URL = "https://github.com/synssins/sonobleedingedge/wiki"
+REPO_URL = "https://github.com/synssins/sonobleedingedge"
 
 # GitHub Releases API URL (includes prereleases)
 # Uses /releases to get all releases including stable/alpha/beta
-RELEASES_API_URL = "https://api.github.com/repos/synssins/sonorium/releases"
-CORE_ZIP_FALLBACK = "https://github.com/synssins/sonorium/releases/download/v0.2.47/core.zip"
+RELEASES_API_URL = "https://api.github.com/repos/synssins/sonobleedingedge/releases"
+CORE_ZIP_FALLBACK = "https://github.com/synssins/sonobleedingedge/releases/download/v0.0.1/core.zip"
 
 # Required folder structure (relative to app root)
 REQUIRED_FOLDERS = ['core', 'config', 'logs', 'themes', 'plugins']

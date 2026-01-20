@@ -2586,6 +2586,190 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             return []
         return _plugin_manager.list_plugins()
 
+    # --- Plugin Catalog (Browse & Install from GitHub) ---
+    # NOTE: These routes MUST come before /api/plugins/{plugin_id} to avoid route conflict
+
+    # Cache for plugin catalog
+    _catalog_cache = {'data': None, 'timestamp': 0}
+    CATALOG_CACHE_TTL = 3600  # 1 hour
+
+    @fastapi_app.get('/api/plugins/catalog')
+    async def get_plugin_catalog():
+        """
+        Fetch available plugins from the GitHub catalog.
+        Returns cached data if available and not expired.
+        """
+        import time
+        import aiohttp
+
+        now = time.time()
+
+        # Return cached data if still valid
+        if _catalog_cache['data'] and (now - _catalog_cache['timestamp']) < CATALOG_CACHE_TTL:
+            catalog = _catalog_cache['data']
+        else:
+            # Fetch fresh catalog from GitHub
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status != 200:
+                            raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: HTTP {resp.status}')
+                        catalog = await resp.json()
+                        _catalog_cache['data'] = catalog
+                        _catalog_cache['timestamp'] = now
+            except aiohttp.ClientError as e:
+                logger.error(f'Failed to fetch plugin catalog: {e}')
+                # Return cached data if available, even if expired
+                if _catalog_cache['data']:
+                    catalog = _catalog_cache['data']
+                else:
+                    raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: {e}')
+
+        # Enrich with installed status
+        installed_plugins = {}
+        if _plugin_manager:
+            for plugin in _plugin_manager.plugins.values():
+                installed_plugins[plugin.id] = plugin.version
+
+        enriched_plugins = []
+        for plugin in catalog.get('plugins', []):
+            plugin_copy = dict(plugin)
+            plugin_id = plugin.get('id')
+            if plugin_id in installed_plugins:
+                plugin_copy['installed'] = True
+                plugin_copy['installed_version'] = installed_plugins[plugin_id]
+                # Check if update available
+                plugin_copy['update_available'] = plugin.get('version') != installed_plugins[plugin_id]
+            else:
+                plugin_copy['installed'] = False
+                plugin_copy['installed_version'] = None
+                plugin_copy['update_available'] = False
+            enriched_plugins.append(plugin_copy)
+
+        return {
+            'version': catalog.get('version', 1),
+            'updated': catalog.get('updated'),
+            'plugins': enriched_plugins
+        }
+
+    @fastapi_app.post('/api/plugins/install-from-catalog')
+    async def install_plugin_from_catalog(plugin_id: str = Body(..., embed=True)):
+        """
+        Download and install a plugin from the GitHub catalog.
+        """
+        import aiohttp
+        import zipfile
+        import io
+        import shutil
+
+        if _plugin_manager is None:
+            raise HTTPException(status_code=503, detail='Plugin system not initialized')
+
+        # First get the catalog to find the plugin
+        catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail='Failed to fetch catalog')
+                    catalog = await resp.json()
+        except aiohttp.ClientError as e:
+            raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: {e}')
+
+        # Find the plugin in the catalog
+        plugin_info = None
+        for p in catalog.get('plugins', []):
+            if p.get('id') == plugin_id:
+                plugin_info = p
+                break
+
+        if not plugin_info:
+            raise HTTPException(status_code=404, detail=f'Plugin "{plugin_id}" not found in catalog')
+
+        # Download the ZIP file
+        zip_filename = plugin_info.get('zip_file')
+        if not zip_filename:
+            raise HTTPException(status_code=500, detail='Plugin has no zip_file specified')
+
+        zip_url = f'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/{zip_filename}'
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail=f'Failed to download plugin: HTTP {resp.status}')
+                    content = await resp.read()
+        except aiohttp.ClientError as e:
+            raise HTTPException(status_code=502, detail=f'Failed to download plugin: {e}')
+
+        # Install the plugin (same logic as upload_plugin)
+        try:
+            zip_buffer = io.BytesIO(content)
+            with zipfile.ZipFile(zip_buffer, 'r') as zf:
+                file_list = zf.namelist()
+                plugin_py_paths = [f for f in file_list if f.endswith('plugin.py')]
+                if not plugin_py_paths:
+                    raise HTTPException(status_code=400, detail='No plugin.py found in ZIP')
+
+                plugin_py = plugin_py_paths[0]
+                plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
+
+                if plugin_dir_name:
+                    target_name = plugin_dir_name.split('/')[0]
+                else:
+                    target_name = plugin_id
+
+                target_dir = _plugin_manager.plugins_dir / target_name
+
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for member in zf.namelist():
+                    if plugin_dir_name and member.startswith(plugin_dir_name + '/'):
+                        target_path = target_dir / member[len(plugin_dir_name) + 1:]
+                    elif plugin_dir_name and member == plugin_dir_name:
+                        continue
+                    else:
+                        target_path = target_dir / member
+
+                    if member.endswith('/'):
+                        target_path.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target_path.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, open(target_path, 'wb') as dst:
+                            dst.write(src.read())
+
+            # Remove from deleted_builtin_plugins if reinstalling a previously deleted builtin
+            config = get_config()
+            deleted_list = config.deleted_builtin_plugins
+            removed_from_deleted = False
+            for name_to_check in [plugin_id, target_name]:
+                if name_to_check in deleted_list:
+                    deleted_list.remove(name_to_check)
+                    removed_from_deleted = True
+                    logger.info(f"Removed '{name_to_check}' from deleted builtins list")
+            if removed_from_deleted:
+                config.save()
+
+            await _plugin_manager.reload_plugins()
+
+            return {
+                'status': 'ok',
+                'plugin_id': plugin_id,
+                'name': plugin_info.get('name', plugin_id),
+                'version': plugin_info.get('version'),
+                'message': f'Plugin "{plugin_info.get("name", plugin_id)}" installed successfully'
+            }
+
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail='Invalid ZIP file from catalog')
+        except Exception as e:
+            logger.error(f'Error installing plugin from catalog: {e}')
+            raise HTTPException(status_code=500, detail=f'Failed to install plugin: {e}')
+
+    # --- Individual Plugin Routes ---
+
     @fastapi_app.get('/api/plugins/{plugin_id}')
     async def get_plugin(plugin_id: str):
         """Get plugin details."""
@@ -2707,6 +2891,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     async def delete_plugin(plugin_id: str):
         """Delete a plugin."""
         import shutil
+        from sonorium.plugins.loader import get_builtin_plugin_ids
 
         if _plugin_manager is None:
             raise HTTPException(status_code=503, detail='Plugin system not initialized')
@@ -2714,6 +2899,10 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         plugin = _plugin_manager.get_plugin(plugin_id)
         if not plugin:
             raise HTTPException(status_code=404, detail='Plugin not found')
+
+        # Check if this is a builtin plugin before deletion
+        builtin_ids = get_builtin_plugin_ids()
+        is_builtin = plugin_id in builtin_ids
 
         # Get the actual plugin directory from the plugin instance
         plugin_dir = plugin.plugin_dir
@@ -2744,6 +2933,14 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             config.enabled_plugins.remove(plugin_id)
         if plugin_id in config.plugin_settings:
             del config.plugin_settings[plugin_id]
+
+        # If this was a builtin plugin, track it as deleted to prevent auto-reinstall
+        if is_builtin:
+            deleted_list = config.deleted_builtin_plugins
+            if plugin_id not in deleted_list:
+                deleted_list.append(plugin_id)
+                logger.info(f"Marked builtin plugin '{plugin_id}' as deleted")
+
         config.save()
 
         return {'status': 'ok', 'message': f'Plugin "{plugin_id}" deleted successfully'}

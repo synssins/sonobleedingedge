@@ -181,7 +181,7 @@ class SessionMQTTEntities:
         config = {
             "name": f"{self.session.name} Play",
             "unique_id": unique_id,
-            "object_id": f"{self.prefix}_{self.slug}_play",
+            "default_entity_id": f"switch.{self.prefix}_{self.slug}_play",
             "state_topic": f"{self.state_topic_base}/play/state",
             "command_topic": f"{self.state_topic_base}/play/set",
             "payload_on": "ON",
@@ -213,7 +213,7 @@ class SessionMQTTEntities:
         config = {
             "name": f"{self.session.name} Theme",
             "unique_id": unique_id,
-            "object_id": f"{self.prefix}_{self.slug}_theme",
+            "default_entity_id": f"select.{self.prefix}_{self.slug}_theme",
             "state_topic": f"{self.state_topic_base}/theme/state",
             "command_topic": f"{self.state_topic_base}/theme/set",
             "options": options,
@@ -245,7 +245,7 @@ class SessionMQTTEntities:
         config = {
             "name": f"{self.session.name} Preset",
             "unique_id": unique_id,
-            "object_id": f"{self.prefix}_{self.slug}_preset",
+            "default_entity_id": f"select.{self.prefix}_{self.slug}_preset",
             "state_topic": f"{self.state_topic_base}/preset/state",
             "command_topic": f"{self.state_topic_base}/preset/set",
             "options": options,
@@ -266,7 +266,7 @@ class SessionMQTTEntities:
         config = {
             "name": f"{self.session.name} Volume",
             "unique_id": unique_id,
-            "object_id": f"{self.prefix}_{self.slug}_volume",
+            "default_entity_id": f"number.{self.prefix}_{self.slug}_volume",
             "state_topic": f"{self.state_topic_base}/volume/state",
             "command_topic": f"{self.state_topic_base}/volume/set",
             "min": 0,
@@ -286,7 +286,7 @@ class SessionMQTTEntities:
         config = {
             "name": f"{self.session.name} Status",
             "unique_id": unique_id,
-            "object_id": f"{self.prefix}_{self.slug}_status",
+            "default_entity_id": f"sensor.{self.prefix}_{self.slug}_status",
             "state_topic": f"{self.state_topic_base}/status/state",
             "icon": "mdi:information-outline",
             "device": self.device_info,
@@ -301,7 +301,7 @@ class SessionMQTTEntities:
         config = {
             "name": f"{self.session.name} Speakers",
             "unique_id": unique_id,
-            "object_id": f"{self.prefix}_{self.slug}_speakers",
+            "default_entity_id": f"sensor.{self.prefix}_{self.slug}_speakers",
             "state_topic": f"{self.state_topic_base}/speakers/state",
             "icon": "mdi:speaker-multiple",
             "device": self.device_info,
@@ -551,15 +551,36 @@ class SonoriumMQTTManager:
         if session.id not in self._session_entities:
             await self.add_session_entities(session)
             return
-        
+
         entities = self._session_entities[session.id]
         entities.session = session  # Update reference
         await entities.update_state()
-        
+
         # Update speakers sensor
         speaker_summary = self.session_manager.get_speaker_summary(session)
         await entities.update_speakers_sensor(speaker_summary)
-    
+
+    async def refresh_session_discovery(self, session: Session):
+        """
+        Republish MQTT discovery for a session.
+
+        Call this when a session's name or other discoverable properties change
+        to update the entity names in Home Assistant.
+        """
+        if session.id not in self._session_entities:
+            await self.add_session_entities(session)
+            return
+
+        entities = self._session_entities[session.id]
+        entities.session = session  # Update reference with new name
+        await entities.publish_discovery()  # Republish with updated name
+        await entities.update_state()
+
+        # Also update the session selector since it shows session names
+        await self._update_session_selector_options()
+
+        logger.info(f"  Refreshed MQTT discovery for session '{session.name}'")
+
     async def _publish_global_entities(self):
         """Publish global Sonorium entities including session selector and controls."""
         import asyncio
@@ -578,7 +599,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Session",
             "unique_id": f"{self.prefix}_session",
-            "object_id": f"{self.prefix}_session",
+            "default_entity_id": f"select.{self.prefix}_session",
             "state_topic": f"{self.prefix}/session/state",
             "command_topic": f"{self.prefix}/session/set",
             "options": session_options,
@@ -616,7 +637,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Play",
             "unique_id": f"{self.prefix}_global_play",
-            "object_id": f"{self.prefix}_global_play",
+            "default_entity_id": f"switch.{self.prefix}_global_play",
             "state_topic": f"{self.prefix}/play/state",
             "command_topic": f"{self.prefix}/play/set",
             "payload_on": "ON",
@@ -657,7 +678,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Theme",
             "unique_id": f"{self.prefix}_global_theme",
-            "object_id": f"{self.prefix}_global_theme",
+            "default_entity_id": f"select.{self.prefix}_global_theme",
             "state_topic": f"{self.prefix}/theme/state",
             "command_topic": f"{self.prefix}/theme/set",
             "options": theme_options,
@@ -683,7 +704,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Preset",
             "unique_id": f"{self.prefix}_preset",
-            "object_id": f"{self.prefix}_preset",
+            "default_entity_id": f"select.{self.prefix}_preset",
             "state_topic": f"{self.prefix}/preset/state",
             "command_topic": f"{self.prefix}/preset/set",
             "options": [""],  # Will be updated when session/theme changes
@@ -709,7 +730,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Volume",
             "unique_id": f"{self.prefix}_volume",
-            "object_id": f"{self.prefix}_volume",
+            "default_entity_id": f"number.{self.prefix}_volume",
             "state_topic": f"{self.prefix}/volume/state",
             "command_topic": f"{self.prefix}/volume/set",
             "min": 0,
@@ -738,7 +759,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Status",
             "unique_id": f"{self.prefix}_status",
-            "object_id": f"{self.prefix}_status",
+            "default_entity_id": f"sensor.{self.prefix}_status",
             "state_topic": f"{self.prefix}/status/state",
             "icon": "mdi:information-outline",
             "device": self.device_info,
@@ -762,7 +783,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Speakers",
             "unique_id": f"{self.prefix}_speakers",
-            "object_id": f"{self.prefix}_speakers",
+            "default_entity_id": f"sensor.{self.prefix}_speakers",
             "state_topic": f"{self.prefix}/speakers/state",
             "icon": "mdi:speaker-multiple",
             "device": self.device_info,
@@ -787,7 +808,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Stop All",
             "unique_id": f"{self.prefix}_stop_all",
-            "object_id": f"{self.prefix}_stop_all",
+            "default_entity_id": f"switch.{self.prefix}_stop_all",
             "state_topic": f"{self.prefix}/stop_all/state",
             "command_topic": f"{self.prefix}/stop_all/set",
             "payload_on": "ON",
@@ -815,7 +836,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Active Sessions",
             "unique_id": f"{self.prefix}_global_active_sessions",
-            "object_id": f"{self.prefix}_global_active_sessions",
+            "default_entity_id": f"sensor.{self.prefix}_global_active_sessions",
             "state_topic": f"{self.prefix}/active_sessions/state",
             "icon": "mdi:counter",
             "device": self.device_info,
@@ -938,7 +959,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Preset",
             "unique_id": f"{self.prefix}_preset",
-            "object_id": f"{self.prefix}_preset",
+            "default_entity_id": f"select.{self.prefix}_preset",
             "state_topic": f"{self.prefix}/preset/state",
             "command_topic": f"{self.prefix}/preset/set",
             "options": options,
@@ -965,7 +986,7 @@ class SonoriumMQTTManager:
         config = {
             "name": "Sonorium Session",
             "unique_id": f"{self.prefix}_session",
-            "object_id": f"{self.prefix}_session",
+            "default_entity_id": f"select.{self.prefix}_session",
             "state_topic": f"{self.prefix}/session/state",
             "command_topic": f"{self.prefix}/session/set",
             "options": session_options,
@@ -977,7 +998,7 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
-    
+
     async def _subscribe_commands(self):
         """Subscribe to command topics."""
         # Build list of topics to subscribe

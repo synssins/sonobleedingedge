@@ -1,11 +1,11 @@
 """
 Theme definitions for Sonorium.
 
-Standalone version without fmtr.tools dependencies.
+Core module for theme management - platform agnostic.
+Handles theme definitions, track instances, metadata, presets, and audio streaming.
 """
 
 import json
-import re
 import time
 from functools import cached_property
 from pathlib import Path
@@ -14,11 +14,9 @@ import numpy as np
 
 from sonorium.obs import logger
 from sonorium.recording import LOG_THRESHOLD, ExclusionGroupCoordinator, PlaybackMode
+from sonorium.utils import IndexList, sanitize
 
-try:
-    import av
-except ImportError:
-    from sonorium._av_compat import av
+import av
 
 # Default output gain multiplier (now controlled via device.master_volume)
 DEFAULT_OUTPUT_GAIN = 6.0
@@ -27,45 +25,32 @@ DEFAULT_OUTPUT_GAIN = 6.0
 DEFAULT_SHORT_FILE_THRESHOLD = 15.0
 
 
-def sanitize(text: str) -> str:
-    """Sanitize a string for use as an ID."""
-    # Replace spaces and special chars with underscores
-    text = re.sub(r'[^\w\-]', '_', text)
-    # Remove consecutive underscores
-    text = re.sub(r'_+', '_', text)
-    # Remove leading/trailing underscores
-    text = text.strip('_')
-    return text.lower()
-
-
-class IndexList(list):
-    """List that supports dict-like access by item name/id attribute."""
-
-    def __getattr__(self, name):
-        """Allow attribute-style access to grouped items."""
-        if name.startswith('_'):
-            raise AttributeError(name)
-
-        # Return a dict mapping the attribute value to item
-        result = {}
-        for item in self:
-            if hasattr(item, name):
-                key = getattr(item, name)
-                result[key] = item
-        return result
-
-
 class ThemeDefinition:
     """
     A theme is a collection of audio files that play together.
 
     ThemeDefinition: What recordings are involved, volumes. User defines these via the UI.
     ThemeStream: One instance per client/connection. Has a RecordingStream for each recording.
+
+    Hierarchy:
+        TrackMetadata (immutable, one per file) ->
+        TrackInstance (mutable, per-theme settings: volume, enabled, etc.) ->
+        TrackStream (one per connection/client)
     """
 
-    def __init__(self, sonorium, name):
+    def __init__(self, sonorium, name: str, theme_id: str = None):
+        """
+        Initialize a theme definition.
+
+        Args:
+            sonorium: Parent Sonorium instance
+            name: Theme folder name
+            theme_id: Optional UUID for the theme. Falls back to sanitized name.
+        """
         self.sonorium = sonorium
         self.name = name
+        # Use provided UUID, or fall back to sanitized folder name for backwards compatibility
+        self._theme_id = theme_id
 
         # Short file threshold (seconds) - files shorter than this use sparse playback
         self.short_file_threshold = DEFAULT_SHORT_FILE_THRESHOLD
@@ -100,9 +85,14 @@ class ThemeDefinition:
             try:
                 with open(meta_path, 'r', encoding='utf-8') as f:
                     self._metadata = json.load(f)
+
                 # Apply theme-level settings
                 if 'short_file_threshold' in self._metadata:
                     self.short_file_threshold = float(self._metadata['short_file_threshold'])
+
+                # Use theme_id from metadata if not provided in constructor
+                if self._theme_id is None and 'id' in self._metadata:
+                    self._theme_id = self._metadata['id']
 
                 # Log what was loaded
                 track_count = len(self._metadata.get('tracks', {}))
@@ -170,6 +160,8 @@ class ThemeDefinition:
         # Preserve existing fields
         if 'name' not in self._metadata:
             self._metadata['name'] = self.name
+        if 'id' not in self._metadata and self._theme_id:
+            self._metadata['id'] = self._theme_id
 
         try:
             with open(meta_path, 'w', encoding='utf-8') as f:
@@ -228,11 +220,63 @@ class ThemeDefinition:
             del self._metadata['presets'][preset_id]
             self.save_metadata()
 
-    @cached_property
-    def id(self):
-        return sanitize(self.name)
+    def apply_preset(self, preset_id: str) -> bool:
+        """
+        Apply a preset's track settings to the current theme.
+
+        Args:
+            preset_id: ID of the preset to apply
+
+        Returns:
+            True if preset was found and applied, False otherwise
+        """
+        presets = self._metadata.get('presets', {})
+        if preset_id not in presets:
+            logger.warning(f'Preset "{preset_id}" not found in theme "{self.name}"')
+            return False
+
+        preset_data = presets[preset_id]
+        track_settings = preset_data.get('tracks', {})
+
+        for instance in self.instances:
+            settings = track_settings.get(instance.name, {})
+            if settings:
+                if 'volume' in settings:
+                    instance.volume = float(settings['volume'])
+                if 'presence' in settings:
+                    instance.presence = float(settings['presence'])
+                if 'muted' in settings:
+                    instance.is_enabled = not settings['muted']
+                if 'playback_mode' in settings:
+                    try:
+                        instance.playback_mode = PlaybackMode(settings['playback_mode'])
+                    except ValueError:
+                        pass
+                if 'exclusive' in settings:
+                    instance.exclusive = bool(settings['exclusive'])
+                if 'seamless_loop' in settings:
+                    instance.crossfade_enabled = bool(settings['seamless_loop'])
+
+        logger.info(f'Applied preset "{preset_data.get("name", preset_id)}" to theme "{self.name}"')
+        return True
+
+    @property
+    def url(self) -> str:
+        """
+        Get the streaming URL for this theme.
+
+        Uses stream_url from sonorium if available, otherwise constructs a relative URL.
+        """
+        stream_url = getattr(self.sonorium, 'stream_url', '')
+        return f'{stream_url}/stream/{self.id}'
+
+    @property
+    def id(self) -> str:
+        """Return the theme UUID from metadata.json, or sanitized name as fallback."""
+        return self._theme_id if self._theme_id else sanitize(self.name)
 
     def get_stream(self):
+        """Create and return a new ThemeStream for this theme."""
         theme = ThemeStream(self)
         self.streams.append(theme)
         logger.info(f'ThemeDefinition {self.name}: Created new ThemeStream (total: {len(self.streams)} streams)')
@@ -244,6 +288,7 @@ class ThemeStream:
     A live stream instance of a theme.
 
     One instance per client/connection. Has a RecordingStream for each recording in the ThemeDefinition.
+    Handles audio mixing and encoding for streaming.
     """
 
     def __init__(self, theme_def: ThemeDefinition):
@@ -260,6 +305,7 @@ class ThemeStream:
 
     @cached_property
     def chunk_silence(self):
+        """Pre-allocated silence chunk for when no tracks are enabled."""
         from sonorium.recording import RecordingThemeStream
         data = np.zeros((1, RecordingThemeStream.CHUNK_SIZE), np.int16)
         return data
@@ -280,14 +326,15 @@ class ThemeStream:
             data = np.vstack(data_recs)
 
             # Proper audio mixing: sum the signals, then normalize
+            # Using float32 for intermediate calculation to avoid overflow
             mixed = data.astype(np.float32).sum(axis=0)
 
-            # Normalize by sqrt(n) to prevent clipping
+            # Normalize by sqrt(n) to prevent clipping while maintaining volume
             n_tracks = len(data_recs)
             if n_tracks > 1:
                 mixed = mixed / np.sqrt(n_tracks)
 
-            # Apply output gain
+            # Apply output gain (use device master_volume if available)
             output_gain = getattr(self.theme_def.sonorium, 'master_volume', DEFAULT_OUTPUT_GAIN)
             mixed = mixed * output_gain
 
@@ -307,7 +354,7 @@ class ThemeStream:
         bitrate = 128_000
         out_stream = output.add_stream(codec_name='mp3', rate=44100)
         out_stream.bit_rate = bitrate
-        # Set stereo layout (channels is read-only in newer PyAV)
+        # Set stereo layout for broad compatibility (AirPlay, Chromecast, etc.)
         out_stream.layout = 'stereo'
 
         iter_chunks = self.iter_chunks()
@@ -318,7 +365,7 @@ class ThemeStream:
         try:
             while True:
                 for i, data in enumerate(iter_chunks):
-                    # Convert mono to stereo for AirPlay/pyatv compatibility
+                    # Convert mono to stereo for compatibility
                     # data shape is (1, samples), need (2, samples)
                     if data.shape[0] == 1:
                         stereo_data = np.vstack([data, data])

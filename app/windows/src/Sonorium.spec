@@ -23,7 +23,7 @@ from pathlib import Path
 spec_dir = Path(SPECPATH)
 windows_dir = spec_dir.parent  # app/windows/
 app_dir = windows_dir.parent  # app/
-project_dir = app_dir.parent  # SonoriumDev/ or repo root
+project_dir = app_dir.parent  # sonobleedingedge/ or repo root
 
 # Generate version info file before build
 version_info_script = spec_dir / 'version_info.py'

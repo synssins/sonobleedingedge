@@ -141,7 +141,6 @@ class Sonorium:
                 if theme.instances:
                     for inst in theme.instances:
                         inst.is_enabled = True
-                    logger.info(f'Auto-enabled all {len(theme.instances)} recordings in theme "{theme.name}"')
 
         try:
             media_players_data = [state for state in self.client_ha.get_states() if state.entity_id.startswith("media_player.")]
