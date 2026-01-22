@@ -1,7 +1,67 @@
 {
   "version": 1,
-  "updated": "2025-01-20",
+  "updated": "2026-01-22",
   "plugins": [
+    {
+      "id": "airplay",
+      "name": "AirPlay Speaker",
+      "description": "Stream audio to AirPlay devices (Apple TV, HomePod, AirPort Express, etc.)",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "speakers",
+      "zip_file": "airplay_v1.0.0.zip",
+      "dependencies": ["pyatv>=0.14.0", "aiohttp>=3.9.0"]
+    },
+    {
+      "id": "chromecast",
+      "name": "Chromecast Speaker",
+      "description": "Stream audio to Chromecast and Google Cast devices",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "speakers",
+      "zip_file": "chromecast_v1.0.0.zip",
+      "dependencies": ["pychromecast>=13.0.0"]
+    },
+    {
+      "id": "dlna",
+      "name": "DLNA/UPnP Speaker",
+      "description": "Stream audio to DLNA/UPnP media renderers",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "speakers",
+      "zip_file": "dlna_v1.0.0.zip",
+      "dependencies": ["async-upnp-client>=0.36.0", "aiohttp>=3.9.0"]
+    },
+    {
+      "id": "heos",
+      "name": "HEOS Speaker (Denon/Marantz)",
+      "description": "Stream audio to Denon and Marantz HEOS devices",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "speakers",
+      "zip_file": "heos_v1.0.0.zip",
+      "dependencies": ["pyheos>=0.7.0"]
+    },
+    {
+      "id": "linkplay",
+      "name": "Linkplay/Arylic Speaker",
+      "description": "Stream audio to Linkplay and Arylic devices via HTTP API",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "speakers",
+      "zip_file": "linkplay_v1.0.0.zip",
+      "dependencies": ["aiohttp>=3.9.0"]
+    },
+    {
+      "id": "sonos",
+      "name": "Sonos Speaker",
+      "description": "Stream audio to Sonos speakers on your network",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "speakers",
+      "zip_file": "sonos_v1.0.0.zip",
+      "dependencies": ["soco>=0.30.0"]
+    },
     {
       "id": "ambient_mixer",
       "name": "Ambient Mixer Importer",

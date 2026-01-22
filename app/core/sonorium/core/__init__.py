@@ -1,28 +1,19 @@
 """
-Sonorium Core Module
+Sonorium Shared Core Module
 
-Contains channel system and core data models.
+Platform-agnostic core functionality shared between all deployment targets.
 """
 
-# Core - Channel system (shared across all platforms)
-from sonorium.core.channel import (
-    Channel,
-    ChannelState,
-    ChannelStream,
-    ChannelManager,
-    DEFAULT_OUTPUT_GAIN,
+from sonorium.core.speaker_model import (
+    DiscoverySource,
+    ControlMethod,
+    UnifiedSpeaker,
 )
-
-# Core - Speaker management (shared across all platforms)
-from sonorium.core.speaker_manager import SpeakerManager
+from sonorium.core.speaker_dedup import SpeakerDeduplicator
 
 __all__ = [
-    # Channel system
-    "Channel",
-    "ChannelState",
-    "ChannelStream",
-    "ChannelManager",
-    "DEFAULT_OUTPUT_GAIN",
-    # Speaker management
-    "SpeakerManager",
+    "DiscoverySource",
+    "ControlMethod",
+    "UnifiedSpeaker",
+    "SpeakerDeduplicator",
 ]

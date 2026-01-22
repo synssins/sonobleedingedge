@@ -1,137 +1,89 @@
 ﻿# Shared Code Directory
 
-This directory contains **shared code** - code that is identical across all Sonorium deployment targets (standalone app, Docker container, Home Assistant addon).
+This directory is the **SOURCE OF TRUTH** for code that must be identical across all deployment targets.
 
-## Why This Exists
+## Core Principle
 
-**Docker build context prevents imports from parent directories.** When the HA addon builds, its Dockerfile can ONLY access files inside `sonorium_addon/`. Therefore, shared code cannot be imported from a common location - it must be **physically copied** into each target.
+**The CORE CODE is IDENTICAL across ALL platforms. ALWAYS.**
 
-## How It Works
+This includes:
+- Audio engine (recording, mixing, playback)
+- Theme management
+- Track/layer handling
+- Plugin framework
+- Shared utilities
+
+## Current State
+
+**Currently synced from shared/:**
+- `plugins/` - Plugin framework (base classes, manager, loader)
+- `platform/` - Platform adapter interfaces
+
+**Currently maintained in BOTH locations (must stay identical):**
+- `recording.py` - Audio engine
+- `theme.py` - Theme management
+- `track.py` - Track/layer handling
+- `utils.py` - Shared utilities
+- `obs.py` - Logging
+
+**Future:** Move core files here and sync automatically.
+
+## Sync System
 
 ```
-shared/                           # SOURCE OF TRUTH - Edit HERE
-    |
-    +--[sync]-->  app/core/sonorium/          (Standalone/Docker)
-    |
-    +--[sync]-->  sonorium_addon/sonorium/    (Home Assistant Add-on)
+shared/plugins/     →  app/core/sonorium/plugins/
+shared/plugins/     →  sonorium_addon/sonorium/plugins/
+
+shared/platform/    →  app/core/sonorium/platform/
+shared/platform/    →  sonorium_addon/sonorium/platform/
+
+plugins/speakers/   →  app/core/sonorium/plugins/speakers/
+plugins/speakers/   →  sonorium_addon/sonorium/plugins/speakers/
 ```
 
-1. **`shared/` is the source of truth** for all shared code
-2. **Pre-commit hook** automatically syncs to deployment targets
-3. **Both copies are committed** to git (required for HA one-click install)
-4. **GitHub Actions** verifies sync is correct on every push/PR
+## Why Files Must Be Copied (Not Imported)
 
-## THE GOLDEN RULE
+**Docker build context limitation:** When the HA addon builds, its Dockerfile can ONLY access files inside `sonorium_addon/`. It CANNOT import from `../shared/` or `../app/`.
 
-| I want to edit... | Edit in... | Why? |
-|-------------------|------------|------|
-| Plugin system | `shared/plugins/` | Shared code |
-| Core audio engine | `shared/core/` | Shared code |
-| Optional modules | `shared/modules/` | Shared code |
-| Windows-specific | `app/core/sonorium/platform/` | Platform code |
-| HA-specific | `sonorium_addon/sonorium/ha/` | Platform code |
+Therefore, shared code must be **physically copied** into the addon folder.
 
-**NEVER edit synced files directly. ALWAYS edit in `shared/`.**
+## Workflow
+
+```bash
+# For plugin framework changes:
+vim shared/plugins/base.py
+python scripts/sync_shared.py
+git add -A && git commit && git push sonobleedingedge main
+
+# For core file changes (temporary - until extracted):
+vim app/core/sonorium/recording.py
+python scripts/sync_core.py  # Copies to HA addon
+git add -A && git commit && git push sonobleedingedge main
+
+# To verify core files are identical:
+python scripts/sync_core.py --check
+```
 
 ## Directory Structure
 
 ```
 shared/
-+-- plugins/                    # Plugin system
-|   +-- __init__.py             # Module interface
-|   +-- base.py                 # SonoriumPlugin base class
-|   +-- manager.py              # Plugin manager
-|   +-- loader.py               # Plugin loader
-|   +-- context.py              # PluginContext
-|   +-- events.py               # EventBus
-|   +-- speaker_base.py         # Speaker plugin base
-|   +-- builtin/                # Built-in plugins
-|       +-- sonos/              # (future) True Sonos plugin
-|       +-- airplay/            # (future) True AirPlay plugin
-|       +-- chromecast/         # (future) True Chromecast plugin
-|
-+-- core/                       # (future) Core audio engine
-+-- modules/                    # (future) Optional features
+├── plugins/                    # Plugin framework (SYNCED)
+│   ├── __init__.py
+│   ├── base.py                 # SonoriumPlugin base class
+│   ├── speaker_base.py         # SpeakerPlugin base class
+│   ├── manager.py              # Plugin manager
+│   ├── loader.py               # Plugin loader
+│   ├── context.py              # PluginContext
+│   └── events.py               # EventBus
+│
+├── platform/                   # Platform adapter interfaces (SYNCED)
+│   ├── __init__.py
+│   └── adapters.py
+│
+└── core/                       # (FUTURE) Core code to extract here
+    ├── recording.py
+    ├── theme.py
+    ├── track.py
+    └── utils.py
 ```
-
-## Usage
-
-### First-Time Setup
-
-After cloning, set up the pre-commit hook:
-
-```bash
-python scripts/setup_hooks.py
-```
-
-This ensures `shared/` is automatically synced before every commit.
-
-### Development Workflow
-
-```bash
-# 1. Make changes in shared/
-# 2. Sync to targets
-python scripts/sync_shared.py
-
-# 3. Test the app
-# 4. Commit and push
-git add -A
-git commit -m "your message"
-git push sonobleedingedge main
-```
-
-### Sync Commands
-
-```bash
-python scripts/sync_shared.py           # Sync all
-python scripts/sync_shared.py --verbose # With details  
-python scripts/sync_shared.py --dry-run # Preview only
-```
-
-## Platform-Agnostic Requirements
-
-Code in `shared/` must be 100% platform-agnostic.
-
-**FORBIDDEN:**
-```python
-import sys
-if sys.platform == "win32":  # NO!
-
-import os
-os.environ.get("SUPERVISOR_TOKEN")  # NO!
-os.environ.get("APPDATA")  # NO!
-
-Path("/config/sonorium")  # NO hardcoded paths!
-```
-
-**USE DEPENDENCY INJECTION:**
-```python
-class MyPlugin:
-    def __init__(self, config: RuntimeConfig):
-        self.data_dir = config.data_dir  # Injected by platform adapter
-```
-
-## Verification
-
-Run before major commits:
-
-```bash
-# Should return ZERO results
-grep -r "sys.platform" shared/
-grep -r "SUPERVISOR_TOKEN" shared/
-grep -r "APPDATA" shared/
-grep -r '"/config' shared/
-grep -r '"/data' shared/
-```
-
-## CI Verification
-
-GitHub Actions (`.github/workflows/verify-sync.yml`) runs on every push/PR to verify that `shared/` is correctly synced. If you commit without syncing, CI will fail.
-
-## Adding New Shared Code
-
-1. Add the file/directory to `shared/`
-2. Update `SYNC_MAPPINGS` in `scripts/sync_shared.py`
-3. Run `python scripts/sync_shared.py`
-4. Test both deployments
-5. Commit all changes

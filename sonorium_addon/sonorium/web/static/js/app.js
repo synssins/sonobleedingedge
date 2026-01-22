@@ -3652,13 +3652,33 @@ async function scanNetworkSpeakers() {
         await loadUnifiedSpeakers();
         renderSettingsSpeakerTree();
 
-        const foundCount = result.found_count || 0;
-        const directOnly = unifiedSpeakers.filter(s => !s.entity_id).length;
-        if (directOnly > 0) {
-            showToast(`Found ${foundCount} speakers (${directOnly} not in Home Assistant)`, 'success');
+        // Build informative message from new response format
+        const found = result.found || 0;
+        const newCount = result.new || 0;
+        const merged = result.merged || 0;
+
+        let message = '';
+        if (found === 0) {
+            message = 'No speakers found on network';
+        } else if (newCount > 0 && merged > 0) {
+            message = `Found ${found} speakers: ${newCount} new, ${merged} already known`;
+        } else if (newCount > 0) {
+            message = `Found ${found} new speakers`;
+        } else if (merged > 0) {
+            message = `Found ${found} speakers (all already in HA)`;
         } else {
-            showToast(`Found ${foundCount} speakers`, 'success');
+            message = `Found ${found} speakers`;
         }
+
+        // Add protocol breakdown if available
+        if (result.by_protocol && Object.keys(result.by_protocol).length > 0) {
+            const protocols = Object.entries(result.by_protocol)
+                .map(([p, c]) => `${p}: ${c}`)
+                .join(', ');
+            console.log(`Network scan by protocol: ${protocols}`);
+        }
+
+        showToast(message, found > 0 ? 'success' : 'info');
     } catch (error) {
         showToast(error.message, 'error');
         renderSettingsSpeakerTree();

@@ -120,11 +120,28 @@ class PluginManager:
             if manifest.get("builtin", False) or is_plugin_bundled(plugin_id):
                 plugin._builtin = True
 
+            # Apply manifest values to plugin instance if plugin class didn't define them
+            # This is important because many plugins rely on manifest.json for metadata
+            if not plugin.id and manifest.get("id"):
+                plugin.id = manifest["id"]
+            if not plugin.name and manifest.get("name"):
+                plugin.name = manifest["name"]
+            if plugin.version == "1.0.0" and manifest.get("version"):
+                plugin.version = manifest["version"]
+            if not plugin.description and manifest.get("description"):
+                plugin.description = manifest["description"]
+            if not plugin.author and manifest.get("author"):
+                plugin.author = manifest["author"]
+
+            # Fallback: use directory name if still no id
+            if not plugin.id:
+                plugin.id = plugin_dir.name
+
             # Update manifest with plugin info if it was auto-generated
             if not manifest.get("plugin_class"):
                 manifest["plugin_class"] = plugin_class.__name__
-                manifest["id"] = plugin.id or plugin_dir.name
-                manifest["name"] = plugin.name or manifest["name"]
+                manifest["id"] = plugin.id
+                manifest["name"] = plugin.name or manifest.get("name", plugin_dir.name)
                 manifest["version"] = plugin.version
                 manifest["description"] = plugin.description
                 manifest["author"] = plugin.author

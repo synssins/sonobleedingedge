@@ -213,49 +213,99 @@ class HybridSpeakerManager:
         # Re-run full dedup to update HA speakers
         return await self.discover_all()
 
-    async def scan_network(self) -> list[UnifiedSpeaker]:
+    async def scan_network(self) -> dict:
         """
         Trigger direct network discovery only (no HA refresh).
 
         Useful for finding speakers not yet in Home Assistant.
 
         Returns:
-            List of speakers found by direct discovery
+            Dict with scan results including found, new, and merged counts
         """
         plugins = self._get_speaker_plugins()
-        direct_speakers = []
+        results_data = {
+            "found": 0,        # Total speakers discovered on network
+            "new": 0,          # Speakers not previously known
+            "merged": 0,       # Speakers merged with existing (duplicates)
+            "by_protocol": {}, # Count by protocol
+            "speakers": [],    # List of discovered speaker summaries
+        }
 
-        if plugins:
-            logger.info(f"HybridSpeakerManager: Scanning network with {len(plugins)} plugins")
-            tasks = [plugin.refresh_speakers() for plugin in plugins]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        if not plugins:
+            self._log.warning(LogCategory.DISCOVERY, "No speaker plugins available for network scan")
+            return results_data
 
-            for plugin, result in zip(plugins, results):
-                if isinstance(result, Exception):
-                    logger.error(f"Network scan failed for {plugin.name}: {result}")
-                    continue
+        self._log.info(
+            LogCategory.DISCOVERY,
+            f"Scanning network with {len(plugins)} plugin(s)",
+            {"plugins": [p.id for p in plugins]}
+        )
 
-                protocol_map = {
-                    "sonos": DiscoverySource.SONOS,
-                    "chromecast": DiscoverySource.CHROMECAST,
-                    "airplay": DiscoverySource.AIRPLAY,
-                    "dlna": DiscoverySource.DLNA,
-                    "linkplay": DiscoverySource.LINKPLAY,
-                    "heos": DiscoverySource.HEOS,
-                }
-                source = protocol_map.get(
-                    getattr(plugin, 'protocol', plugin.id),
-                    DiscoverySource.MANUAL
+        tasks = [plugin.refresh_speakers() for plugin in plugins]
+        scan_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for plugin, result in zip(plugins, scan_results):
+            if isinstance(result, Exception):
+                self._log.error(
+                    LogCategory.DISCOVERY,
+                    f"Network scan failed for {plugin.name}: {result}"
                 )
+                continue
 
-                for network_speaker in result:
-                    unified = self._network_speaker_to_unified(network_speaker, source)
-                    # Add to deduplicator (will merge if already exists)
-                    merged = self.deduplicator.add_speaker(unified)
-                    direct_speakers.append(merged)
+            protocol_map = {
+                "sonos": DiscoverySource.SONOS,
+                "chromecast": DiscoverySource.CHROMECAST,
+                "airplay": DiscoverySource.AIRPLAY,
+                "dlna": DiscoverySource.DLNA,
+                "linkplay": DiscoverySource.LINKPLAY,
+                "heos": DiscoverySource.HEOS,
+            }
+            protocol = getattr(plugin, 'protocol', plugin.id)
+            source = protocol_map.get(protocol, DiscoverySource.MANUAL)
 
-        logger.info(f"HybridSpeakerManager: Network scan found {len(direct_speakers)} speakers")
-        return direct_speakers
+            protocol_count = 0
+            for network_speaker in result:
+                unified = self._network_speaker_to_unified(network_speaker, source)
+
+                # Check if this is a new speaker or merge with existing
+                existing = self.deduplicator.get_speaker(unified.canonical_id)
+                was_new = existing is None
+
+                # Add to deduplicator (will merge if already exists)
+                merged = self.deduplicator.add_speaker(unified)
+
+                results_data["found"] += 1
+                protocol_count += 1
+
+                if was_new:
+                    results_data["new"] += 1
+                else:
+                    results_data["merged"] += 1
+
+                results_data["speakers"].append({
+                    "name": merged.name,
+                    "ip": merged.ip_address,
+                    "protocol": source.value,
+                    "is_new": was_new,
+                })
+
+            results_data["by_protocol"][protocol] = protocol_count
+
+        # Log summary
+        self._log.info(
+            LogCategory.DISCOVERY,
+            f"Network scan complete: {results_data['found']} found, "
+            f"{results_data['new']} new, {results_data['merged']} merged",
+            results_data["by_protocol"]
+        )
+
+        logger.info(
+            f"HybridSpeakerManager: Network scan - "
+            f"{results_data['found']} found, {results_data['new']} new, "
+            f"{results_data['merged']} merged with existing"
+        )
+
+        return results_data
 
     # --- Speaker Access ---
 

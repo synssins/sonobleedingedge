@@ -170,3 +170,14 @@ FOUNDATIONAL_CHANGES.md
 
 # Claude Code instruction files - NEVER COMMIT
 CLAUDE_GIT_SAFETY.md
+
+# Claude archive folder - local only, never commit
+.claude-archive/
+PROJECT-SUMMARY.md
+ARCHITECTURE.md
+
+# Plugin archives (distributable zips)
+plugins/*.zip
+
+# Windows null device artifact
+nul

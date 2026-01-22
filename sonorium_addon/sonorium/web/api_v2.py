@@ -940,6 +940,13 @@ def create_api_router(
 
         Does not refresh HA registry, only runs plugin discovery.
         Useful for finding speakers not yet in Home Assistant.
+
+        Returns:
+            found: Total speakers discovered on network
+            new: Speakers not previously known
+            merged: Speakers merged with existing (duplicates)
+            by_protocol: Count by protocol
+            speakers: List of discovered speaker summaries
         """
         if not hybrid_speaker_manager:
             raise HTTPException(
@@ -947,11 +954,10 @@ def create_api_router(
                 detail="Hybrid speaker manager not initialized"
             )
 
-        speakers = await hybrid_speaker_manager.scan_network()
+        result = await hybrid_speaker_manager.scan_network()
         return {
             "status": "ok",
-            "found_count": len(speakers),
-            "speakers": [s.to_dict() for s in speakers],
+            **result,  # Include found, new, merged, by_protocol, speakers
         }
 
     @router.get("/speakers/unified/{canonical_id}")
