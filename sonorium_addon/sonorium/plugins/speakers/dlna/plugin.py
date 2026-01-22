@@ -468,6 +468,27 @@ class DLNAPlugin(SpeakerPlugin):
         """Get plugin capabilities."""
         return ["volume", "pause", "resume"]
 
+    def get_settings_schema(self) -> dict:
+        """Plugin settings."""
+        return {
+            "discovery_timeout": {
+                "type": "number",
+                "default": 10,
+                "label": "Discovery Timeout (seconds)",
+                "description": "How long to wait for DLNA/SSDP devices to respond",
+                "min": 3,
+                "max": 60
+            },
+            "scan_interval": {
+                "type": "number",
+                "default": 5,
+                "label": "Scan Interval (seconds)",
+                "description": "How long to scan for devices during discovery",
+                "min": 2,
+                "max": 30
+            }
+        }
+
 
 # Plugin entry point
 Plugin = DLNAPlugin

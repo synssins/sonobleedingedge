@@ -344,6 +344,25 @@ class SonosPlugin(SpeakerPlugin):
             caps.append("groups")
         return caps
 
+    def get_settings_schema(self) -> dict:
+        """Plugin settings."""
+        return {
+            "discovery_timeout": {
+                "type": "number",
+                "default": 5,
+                "label": "Discovery Timeout (seconds)",
+                "description": "How long to wait for Sonos devices to respond",
+                "min": 1,
+                "max": 30
+            },
+            "use_groups": {
+                "type": "boolean",
+                "default": True,
+                "label": "Enable Group Support",
+                "description": "Allow grouping Sonos speakers together"
+            }
+        }
+
 
 # Plugin entry point
 Plugin = SonosPlugin

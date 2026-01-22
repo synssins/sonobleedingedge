@@ -402,6 +402,27 @@ class AirPlayPlugin(SpeakerPlugin):
         """Get plugin capabilities."""
         return ["volume"]
 
+    def get_settings_schema(self) -> dict:
+        """Plugin settings."""
+        return {
+            "discovery_timeout": {
+                "type": "number",
+                "default": 10,
+                "label": "Discovery Timeout (seconds)",
+                "description": "How long to wait for AirPlay devices to respond",
+                "min": 3,
+                "max": 60
+            },
+            "connection_timeout": {
+                "type": "number",
+                "default": 30,
+                "label": "Connection Timeout (seconds)",
+                "description": "How long to wait when connecting to a device",
+                "min": 5,
+                "max": 120
+            }
+        }
+
     async def on_disable(self) -> None:
         """Clean up all connections when disabled."""
         await super().on_disable()

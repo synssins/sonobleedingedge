@@ -337,6 +337,25 @@ class LinkplayPlugin(SpeakerPlugin):
         """Get plugin capabilities."""
         return ["volume"]
 
+    def get_settings_schema(self) -> dict:
+        """Plugin settings."""
+        return {
+            "probe_timeout": {
+                "type": "number",
+                "default": 2,
+                "label": "Probe Timeout (seconds)",
+                "description": "How long to wait for each device probe",
+                "min": 1,
+                "max": 10
+            },
+            "scan_full_subnet": {
+                "type": "boolean",
+                "default": True,
+                "label": "Scan Full Subnet",
+                "description": "Scan entire /24 subnet for Linkplay devices"
+            }
+        }
+
 
 # Plugin entry point
 Plugin = LinkplayPlugin

@@ -4477,7 +4477,7 @@ function renderInstalledPlugins() {
                             ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
                         </div>
                         <div class="plugin-actions">
-                            ${plugin.settings_schema && Object.keys(plugin.settings_schema.properties || {}).length > 0 ? `
+                            ${plugin.settings_schema && Object.keys(plugin.settings_schema).length > 0 ? `
                             <button class="btn btn-sm btn-outline"
                                     onclick="openPluginSettings('${plugin.id}')"
                                     title="Plugin settings">
@@ -4663,15 +4663,19 @@ async function openPluginSettings(pluginId) {
 
 function renderPluginSettingsForm(plugin, currentSettings) {
     const schema = plugin.settings_schema;
-    if (!schema || !schema.properties) {
+    if (!schema || Object.keys(schema).length === 0) {
         return '<p>No configurable settings.</p>';
     }
 
+    // Handle both JSON Schema format (with properties) and flat format (direct settings)
+    const properties = schema.properties || schema;
+
     let html = '<div class="plugin-settings-form">';
 
-    for (const [key, prop] of Object.entries(schema.properties)) {
+    for (const [key, prop] of Object.entries(properties)) {
         const value = currentSettings[key] !== undefined ? currentSettings[key] : prop.default;
-        const label = prop.title || key;
+        // Support both 'title' (JSON Schema) and 'label' (flat format) for field labels
+        const label = prop.title || prop.label || key;
         const description = prop.description || '';
 
         html += `<div class="form-group" style="margin-bottom: 1rem;">`;
@@ -4685,8 +4689,11 @@ function renderPluginSettingsForm(plugin, currentSettings) {
                 </label>
             `;
         } else if (prop.type === 'number') {
-            const min = prop.minimum !== undefined ? `min="${prop.minimum}"` : '';
-            const max = prop.maximum !== undefined ? `max="${prop.maximum}"` : '';
+            // Support both 'minimum'/'maximum' (JSON Schema) and 'min'/'max' (flat format)
+            const minVal = prop.minimum !== undefined ? prop.minimum : prop.min;
+            const maxVal = prop.maximum !== undefined ? prop.maximum : prop.max;
+            const min = minVal !== undefined ? `min="${minVal}"` : '';
+            const max = maxVal !== undefined ? `max="${maxVal}"` : '';
             html += `
                 <input type="number" data-setting="${key}" value="${value || ''}"
                        ${min} ${max} class="form-control" style="width: 100%; padding: 0.5rem;">
