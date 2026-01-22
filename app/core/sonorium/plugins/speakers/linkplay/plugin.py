@@ -22,6 +22,7 @@ from sonorium.plugins.speaker_base import (
     NetworkSpeaker,
     SpeakerState,
 )
+from sonorium.plugins.network_utils import get_target_subnet
 from sonorium.obs import logger
 
 
@@ -57,42 +58,9 @@ class LinkplayPlugin(SpeakerPlugin):
         # Active sessions
         self._active_hosts: dict[str, str] = {}
 
-    def _get_local_ip(self) -> Optional[str]:
-        """Get local IP address, preferring non-Docker networks."""
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except Exception:
-            return None
-
-    def _get_target_subnet(self) -> Optional[str]:
-        """Get the target subnet prefix for scanning."""
-        # Use configured subnet if provided
-        if self._target_subnet:
-            # Normalize: remove trailing dots, ensure 3 octets
-            subnet = self._target_subnet.strip().rstrip('.')
-            parts = subnet.split('.')
-            if len(parts) >= 3:
-                return '.'.join(parts[:3])
-            logger.warning(f"Invalid target_subnet '{self._target_subnet}', using auto-detect")
-
-        # Auto-detect: try to find non-Docker network
-        local_ip = self._get_local_ip()
-        if not local_ip:
-            return None
-
-        # Filter out common Docker/virtual network ranges
-        docker_prefixes = ['172.17.', '172.18.', '172.19.', '172.30.', '172.31.']
-        if any(local_ip.startswith(prefix) for prefix in docker_prefixes):
-            logger.warning(
-                f"Detected Docker network {local_ip}, speakers may not be found. "
-                f"Set 'target_subnet' in plugin settings (e.g., '192.168.1')."
-            )
-
-        return '.'.join(local_ip.split('.')[:3])
+    def _get_scan_subnet(self) -> Optional[str]:
+        """Get the target subnet prefix for scanning using shared utility."""
+        return get_target_subnet(self._target_subnet, self.name)
 
     async def discover_speakers(self) -> list[NetworkSpeaker]:
         """
@@ -111,7 +79,7 @@ class LinkplayPlugin(SpeakerPlugin):
 
             logger.info("Starting Linkplay direct probe discovery...")
 
-            subnet_prefix = self._get_target_subnet()
+            subnet_prefix = self._get_scan_subnet()
             if not subnet_prefix:
                 logger.warning("Could not determine subnet for Linkplay scan")
                 return discovered

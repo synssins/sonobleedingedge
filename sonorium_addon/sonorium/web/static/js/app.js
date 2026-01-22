@@ -4477,6 +4477,16 @@ function renderInstalledPlugins() {
                             ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
                         </div>
                         <div class="plugin-actions">
+                            ${plugin.settings_schema && Object.keys(plugin.settings_schema.properties || {}).length > 0 ? `
+                            <button class="btn btn-sm btn-outline"
+                                    onclick="openPluginSettings('${plugin.id}')"
+                                    title="Plugin settings">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                </svg>
+                            </button>
+                            ` : ''}
                             <button class="btn btn-sm ${plugin.enabled ? 'btn-secondary' : 'btn-primary'}"
                                     onclick="togglePlugin('${plugin.id}', ${!plugin.enabled})">
                                 ${toggleText}
@@ -4605,6 +4615,141 @@ async function togglePlugin(pluginId, enable) {
         renderPluginsView();
     } catch (error) {
         showToast(error.message || 'Failed to toggle plugin', 'error');
+    }
+}
+
+async function openPluginSettings(pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    if (!plugin || !plugin.settings_schema) {
+        showToast('No settings available for this plugin', 'error');
+        return;
+    }
+
+    // Fetch current settings from API
+    let currentSettings = {};
+    try {
+        const result = await api('GET', `/plugins/${pluginId}/settings`);
+        currentSettings = result.settings || {};
+    } catch (error) {
+        console.error('Failed to load plugin settings:', error);
+    }
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'plugin-settings-modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>${escapeHtml(plugin.name)} Settings</h3>
+                <button class="modal-close" onclick="closePluginSettingsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                ${renderPluginSettingsForm(plugin, currentSettings)}
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePluginSettingsModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePluginSettings('${pluginId}')">Save</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closePluginSettingsModal();
+    });
+}
+
+function renderPluginSettingsForm(plugin, currentSettings) {
+    const schema = plugin.settings_schema;
+    if (!schema || !schema.properties) {
+        return '<p>No configurable settings.</p>';
+    }
+
+    let html = '<div class="plugin-settings-form">';
+
+    for (const [key, prop] of Object.entries(schema.properties)) {
+        const value = currentSettings[key] !== undefined ? currentSettings[key] : prop.default;
+        const label = prop.title || key;
+        const description = prop.description || '';
+
+        html += `<div class="form-group" style="margin-bottom: 1rem;">`;
+        html += `<label style="display: block; margin-bottom: 0.25rem; font-weight: 500;">${escapeHtml(label)}</label>`;
+
+        if (prop.type === 'boolean') {
+            html += `
+                <label class="toggle-switch" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" data-setting="${key}" ${value ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            `;
+        } else if (prop.type === 'number') {
+            const min = prop.minimum !== undefined ? `min="${prop.minimum}"` : '';
+            const max = prop.maximum !== undefined ? `max="${prop.maximum}"` : '';
+            html += `
+                <input type="number" data-setting="${key}" value="${value || ''}"
+                       ${min} ${max} class="form-control" style="width: 100%; padding: 0.5rem;">
+            `;
+        } else if (prop.enum) {
+            html += `<select data-setting="${key}" class="form-control" style="width: 100%; padding: 0.5rem;">`;
+            for (const opt of prop.enum) {
+                html += `<option value="${escapeHtml(opt)}" ${value === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`;
+            }
+            html += `</select>`;
+        } else {
+            // Default: string input
+            html += `
+                <input type="text" data-setting="${key}" value="${escapeHtml(value || '')}"
+                       class="form-control" style="width: 100%; padding: 0.5rem;"
+                       placeholder="${escapeHtml(prop.default || '')}">
+            `;
+        }
+
+        if (description) {
+            html += `<small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">${escapeHtml(description)}</small>`;
+        }
+        html += `</div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+async function savePluginSettings(pluginId) {
+    const modal = document.getElementById('plugin-settings-modal');
+    if (!modal) return;
+
+    const settings = {};
+    const inputs = modal.querySelectorAll('[data-setting]');
+
+    for (const input of inputs) {
+        const key = input.dataset.setting;
+        if (input.type === 'checkbox') {
+            settings[key] = input.checked;
+        } else if (input.type === 'number') {
+            settings[key] = input.value ? parseFloat(input.value) : null;
+        } else {
+            settings[key] = input.value;
+        }
+    }
+
+    try {
+        await api('PUT', `/plugins/${pluginId}/settings`, { settings });
+        showToast('Settings saved', 'success');
+        closePluginSettingsModal();
+        // Reload plugins to reflect any changes
+        await loadPlugins();
+        renderPluginsView();
+    } catch (error) {
+        showToast(error.message || 'Failed to save settings', 'error');
+    }
+}
+
+function closePluginSettingsModal() {
+    const modal = document.getElementById('plugin-settings-modal');
+    if (modal) {
+        modal.remove();
     }
 }
 

@@ -1,5 +1,5 @@
 name: SonoBleedingEdge
-version: "0.0.15"
+version: "0.0.16"
 slug: sonobleedingedge
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonobleedingedge
@@ -12,6 +12,9 @@ init: false
 homeassistant_api: true
 hassio_api: true
 audio: false
+
+# Host network required for mDNS/SSDP speaker discovery
+host_network: true
 
 # Ingress - enables sidebar integration
 ingress: true
