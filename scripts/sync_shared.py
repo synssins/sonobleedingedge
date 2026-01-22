@@ -21,7 +21,7 @@ SHARED_MAPPINGS = [
     ("plugins", "plugins"),           # Plugin system (base.py, speaker_base.py, etc.)
     ("platform", "platform"),         # Platform adapters (PathProvider, ConfigProvider)
     ("models", "models"),             # Platform-agnostic data models (UnifiedSpeaker, etc.)
-    ("utils", "utils"),               # Platform-agnostic utilities (network_utils, etc.)
+    ("network", "network"),           # Network utilities (subnet detection, etc.)
     # Future extractions:
     ("modules", "modules"),           # Optional features (recording, etc.)
 ]

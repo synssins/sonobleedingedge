@@ -1,7 +1,7 @@
 """
-Shared Utilities
+Network Utilities
 
-Platform-agnostic utility functions used across Sonorium components.
+Platform-agnostic network utility functions used across Sonorium components.
 """
 
 from .network_utils import (

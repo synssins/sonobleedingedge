@@ -22,7 +22,7 @@ from sonorium.plugins.speaker_base import (
     NetworkSpeaker,
     SpeakerState,
 )
-from sonorium.utils.network_utils import get_target_subnet
+from sonorium.network.network_utils import get_target_subnet
 from sonorium.obs import logger
 
 
