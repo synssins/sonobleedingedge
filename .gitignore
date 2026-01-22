@@ -176,8 +176,8 @@ CLAUDE_GIT_SAFETY.md
 PROJECT-SUMMARY.md
 ARCHITECTURE.md
 
-# Plugin archives (distributable zips)
-plugins/*.zip
+# Plugin archives - now tracked for builtin plugin reinstall support
+# plugins/*.zip
 
 # Windows null device artifact
 nul
