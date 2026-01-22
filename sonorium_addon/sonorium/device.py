@@ -101,12 +101,18 @@ class Sonorium:
         self.themes = IndexList()
         self.theme_metas = {}
 
+        # Track stats for summary logging
+        total_audio_files = 0
+        empty_folders = []
+        metadata_issues = []
+
         for folder in theme_folders:
             audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in ['.mp3', '.wav', '.flac', '.ogg']]
 
             if audio_files:
                 theme_name = folder.name
                 self.theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
+                total_audio_files += len(audio_files)
 
                 # Read UUID from metadata.json if it exists
                 theme_id = None
@@ -114,20 +120,38 @@ class Sonorium:
                 if metadata_path.exists():
                     try:
                         import json
-                        metadata = json.loads(metadata_path.read_text())
-                        theme_id = metadata.get("id")
+                        content = metadata_path.read_text()
+                        if not content.strip():
+                            metadata_issues.append(f'"{folder.name}": empty metadata.json')
+                        else:
+                            metadata = json.loads(content)
+                            theme_id = metadata.get("id")
+                            if not theme_id:
+                                metadata_issues.append(f'"{folder.name}": metadata.json missing "id" field')
+                    except json.JSONDecodeError as e:
+                        metadata_issues.append(f'"{folder.name}": invalid JSON in metadata.json')
                     except Exception:
                         pass  # Fall back to sanitized folder name
+                else:
+                    metadata_issues.append(f'"{folder.name}": no metadata.json (will be created)')
 
                 theme_def = ThemeDefinition(sonorium=self, name=theme_name, theme_id=theme_id)
                 self.themes.append(theme_def)
-                logger.info(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
             else:
-                logger.warning(f'Theme folder "{folder.name}" contains no audio files')
+                empty_folders.append(folder.name)
 
         self.metas = IndexList()
         for theme_recordings in self.theme_metas.values():
             self.metas.extend(theme_recordings)
+
+        # Log summary
+        logger.info(f'Loaded {len(self.themes)} theme(s) with {total_audio_files} total audio files')
+
+        # Log warnings for issues
+        for folder_name in empty_folders:
+            logger.warning(f'Theme folder "{folder_name}" contains no audio files')
+        for issue in metadata_issues:
+            logger.debug(f'Theme metadata: {issue}')
 
         if not self.themes:
             logger.warning(f'No themes with audio files found in "{self.path_audio}". Add audio files to theme folders.')

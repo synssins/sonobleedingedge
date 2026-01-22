@@ -162,6 +162,8 @@ class ThemeMetadataManager:
             return {}
 
         themes = {}
+        skipped_folders = []
+        created_metadata = []
 
         for folder in self.audio_path.iterdir():
             if not folder.is_dir():
@@ -172,18 +174,30 @@ class ThemeMetadataManager:
                          if f.is_file() and f.suffix.lower() in ['.mp3', '.wav', '.flac', '.ogg']]
 
             if not audio_files:
-                logger.debug(f"Skipping folder with no audio: {folder.name}")
+                skipped_folders.append(folder.name)
                 continue
+
+            # Track if metadata was newly created
+            metadata_path = folder / "metadata.json"
+            existed_before = metadata_path.exists()
 
             # Load or create metadata
             metadata = self._load_or_create_metadata(folder)
+
+            if not existed_before:
+                created_metadata.append(folder.name)
 
             # Store mappings
             self._id_to_folder[metadata.id] = folder
             self._metadata_cache[folder] = metadata
             themes[metadata.id] = metadata
 
-            logger.info(f"Loaded theme '{metadata.name}' (id={metadata.id[:8]}...) from {folder.name}")
+        # Log summary instead of per-theme
+        logger.debug(f"ThemeMetadataManager: Scanned {len(themes)} theme(s)")
+        if skipped_folders:
+            logger.debug(f"  Skipped {len(skipped_folders)} folder(s) with no audio")
+        if created_metadata:
+            logger.debug(f"  Created metadata for {len(created_metadata)} theme(s): {', '.join(created_metadata)}")
 
         return themes
 
@@ -212,7 +226,6 @@ class ThemeMetadataManager:
 
         # Save immediately so ID is persisted
         self._save_metadata(folder, metadata)
-        logger.info(f"Created new metadata for theme '{folder.name}' with id={metadata.id[:8]}...")
 
         return metadata
 

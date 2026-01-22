@@ -238,12 +238,9 @@ class ApiSonorium(api.Base):
                     ha_registry=self._ha_registry,
                     plugin_manager=self._plugin_manager,
                 )
-                # Run initial discovery
-                await self._hybrid_speaker_manager.discover_all()
-                speaker_count = len(self._hybrid_speaker_manager.get_speakers())
-                ha_count = len(self._hybrid_speaker_manager.get_ha_speakers())
-                direct_count = len(self._hybrid_speaker_manager.get_direct_only_speakers())
-                logger.info(f"  Hybrid speaker manager: {speaker_count} speakers ({ha_count} HA, {direct_count} direct-only)")
+                # NOTE: Initial discovery is deferred until after server is accepting connections
+                # This ensures WebUI is available before potentially slow network scans
+                logger.info(f"  Hybrid speaker manager: initialized (discovery pending)")
             except Exception as e:
                 logger.warning(f"  Failed to initialize hybrid speaker manager: {e}")
                 self._hybrid_speaker_manager = None
@@ -289,17 +286,48 @@ class ApiSonorium(api.Base):
             # Start cycle manager background task
             await self._cycle_manager.start()
             logger.info("  CycleManager started")
-            
+
             self._v2_initialized = True
             logger.info("  Sonorium v2 initialization complete!")
-            
+
+            # Schedule deferred speaker discovery (runs after server is accepting connections)
+            # This ensures WebUI is available before network scans
+            if self._hybrid_speaker_manager:
+                import asyncio
+                asyncio.create_task(self._run_initial_discovery())
+
         except ImportError as e:
             logger.error(f"  Failed to import v2 modules: {e}")
         except Exception as e:
             logger.error(f"  Failed to initialize v2 components: {e}")
             import traceback
             traceback.print_exc()
-    
+
+    async def _run_initial_discovery(self):
+        """
+        Run initial speaker discovery in the background.
+
+        This is scheduled to run after the server starts accepting connections,
+        ensuring the WebUI is available before potentially slow network scans.
+        """
+        import asyncio
+
+        # Brief delay to ensure server is fully ready
+        await asyncio.sleep(1.0)
+
+        logger.info("Running initial speaker discovery...")
+        try:
+            await self._hybrid_speaker_manager.discover_all()
+            speaker_count = len(self._hybrid_speaker_manager.get_speakers())
+            ha_count = len(self._hybrid_speaker_manager.get_ha_speakers())
+            direct_count = len(self._hybrid_speaker_manager.get_direct_only_speakers())
+            logger.info(
+                f"Initial discovery complete: {speaker_count} speakers "
+                f"({ha_count} HA, {direct_count} direct-only)"
+            )
+        except Exception as e:
+            logger.error(f"Initial speaker discovery failed: {e}")
+
     def _migrate_theme_data_to_metadata(self):
         """
         Migrate theme data from state.json to metadata.json (one-time migration).

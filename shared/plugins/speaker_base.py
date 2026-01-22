@@ -359,8 +359,14 @@ class SpeakerPlugin(BasePlugin):
     # --- Lifecycle ---
 
     async def on_enable(self) -> None:
-        """Start discovery when plugin is enabled."""
-        await self.start_discovery()
+        """
+        Called when plugin is enabled.
+
+        Note: Does NOT auto-start continuous discovery loop.
+        Use start_discovery() explicitly if continuous discovery is needed.
+        One-shot discovery is done via refresh_speakers() or discover_speakers().
+        """
+        logger.debug(f"{self.name}: Plugin enabled")
 
     async def on_disable(self) -> None:
         """Stop discovery and playback when disabled."""
