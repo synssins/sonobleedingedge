@@ -20,6 +20,12 @@ from sonorium.obs import logger
 
 
 # ============================================================
+# Module-level caches
+# ============================================================
+_builtin_plugin_ids_cache: Optional[list[str]] = None
+
+
+# ============================================================
 # Plugin Directory Functions
 # ============================================================
 
@@ -198,19 +204,39 @@ def get_builtin_plugin_ids() -> list[str]:
     Get list of plugin IDs that are bundled with the application.
 
     These are the plugins shipped in the bundled plugins directory.
+    Results are cached to avoid repeated directory scans.
 
     Returns:
         List of plugin ID strings
     """
+    global _builtin_plugin_ids_cache
+
+    # Return cached result if available
+    if _builtin_plugin_ids_cache is not None:
+        return _builtin_plugin_ids_cache
+
     bundled_dir = get_bundled_plugins_dir()
     if not bundled_dir.exists():
-        return []
+        _builtin_plugin_ids_cache = []
+        return _builtin_plugin_ids_cache
 
     builtin_ids = []
     for plugin_dir in _scan_plugins_dir(bundled_dir):
         builtin_ids.append(plugin_dir.name)
 
+    _builtin_plugin_ids_cache = builtin_ids
+    logger.debug(f"Cached {len(builtin_ids)} builtin plugin IDs")
     return builtin_ids
+
+
+def clear_builtin_plugin_cache() -> None:
+    """
+    Clear the builtin plugin ID cache.
+
+    Call this if plugins are added/removed and the cache needs to be refreshed.
+    """
+    global _builtin_plugin_ids_cache
+    _builtin_plugin_ids_cache = None
 
 
 def is_plugin_bundled(plugin_id: str) -> bool:

@@ -72,6 +72,20 @@ class ApiSonorium(api.Base):
         else:
             logger.warning(f"Static directory not found: {STATIC_DIR}")
 
+        # Log all paths for debugging
+        logger.info(f"Path verification:")
+        logger.info(f"  TEMPLATES_DIR: {TEMPLATES_DIR} exists={TEMPLATES_DIR.exists()}")
+        logger.info(f"  STATIC_DIR: {STATIC_DIR} exists={STATIC_DIR.exists()}")
+        logger.info(f"  index.html: {TEMPLATES_DIR / 'index.html'} exists={(TEMPLATES_DIR / 'index.html').exists()}")
+
+        # Add a direct health check endpoint (bypasses fmtr.tools)
+        @self.app.get("/health")
+        async def health_check():
+            """Simple health check endpoint."""
+            return {"status": "ok", "version": __version__, "v2_initialized": self._v2_initialized}
+
+        logger.info("ApiSonorium initialized, ready for endpoint registration")
+
     def get_endpoints(self):
         # IMPORTANT: More specific routes must come BEFORE catch-all routes!
         # /stream/channel{n} must be registered before /stream/{id}
