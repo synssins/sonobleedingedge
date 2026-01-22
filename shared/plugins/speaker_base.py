@@ -254,9 +254,15 @@ class SpeakerPlugin(BasePlugin):
         if self._discovery_task:
             self._discovery_task.cancel()
             try:
-                await self._discovery_task
-            except asyncio.CancelledError:
+                # Add timeout to prevent hanging on blocking operations
+                await asyncio.wait_for(
+                    asyncio.shield(self._discovery_task),
+                    timeout=5.0
+                )
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
+            except Exception as e:
+                logger.debug(f"{self.name}: Discovery task cleanup: {e}")
             self._discovery_task = None
         logger.info(f"{self.name}: Stopped speaker discovery")
 

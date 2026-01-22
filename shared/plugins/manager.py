@@ -93,6 +93,17 @@ class PluginManager:
             if plugin_id in self.plugins:
                 await self.enable_plugin(plugin_id)
 
+        # Auto-enable speaker plugins by default (unless explicitly disabled)
+        disabled_list = getattr(self.config, 'disabled_plugins', [])
+        for plugin_id, plugin in self.plugins.items():
+            # Skip if already enabled or explicitly disabled
+            if plugin.enabled or plugin_id in disabled_list:
+                continue
+            # Auto-enable speaker plugins
+            if getattr(plugin, 'plugin_type', None) == 'speaker':
+                logger.info(f"Auto-enabling speaker plugin: {plugin_id}")
+                await self.enable_plugin(plugin_id)
+
         self._initialized = True
         logger.info(f"Plugin manager initialized with {len(self.plugins)} plugin(s)")
 
@@ -270,8 +281,13 @@ class PluginManager:
             enabled_list = self.config.enabled_plugins
             if plugin_id not in enabled_list:
                 enabled_list.append(plugin_id)
-                self.config.save()
 
+            # Remove from disabled list if present
+            disabled_list = getattr(self.config, 'disabled_plugins', None)
+            if disabled_list is not None and plugin_id in disabled_list:
+                disabled_list.remove(plugin_id)
+
+            self.config.save()
             logger.info(f"Enabled plugin: {plugin.name}")
 
             # Emit plugin activated event
@@ -316,8 +332,13 @@ class PluginManager:
             enabled_list = self.config.enabled_plugins
             if plugin_id in enabled_list:
                 enabled_list.remove(plugin_id)
-                self.config.save()
 
+            # Track explicitly disabled plugins (prevents auto-enable for speaker plugins)
+            disabled_list = getattr(self.config, 'disabled_plugins', None)
+            if disabled_list is not None and plugin_id not in disabled_list:
+                disabled_list.append(plugin_id)
+
+            self.config.save()
             logger.info(f"Disabled plugin: {plugin.name}")
 
             # Emit plugin deactivated event

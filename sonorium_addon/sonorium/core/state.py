@@ -136,6 +136,10 @@ class SonoriumSettings:
     # Enabled plugins list (by plugin_id)
     enabled_plugins: list[str] = field(default_factory=list)
 
+    # Explicitly disabled plugins (prevents auto-enable for speaker plugins)
+    # Speaker plugins are auto-enabled by default unless in this list
+    disabled_plugins: list[str] = field(default_factory=list)
+
     # Deleted builtin plugins (prevents auto-reinstall on startup)
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)
@@ -427,6 +431,10 @@ class StateStore:
     @property
     def enabled_plugins(self) -> list[str]:
         return self.state.settings.enabled_plugins
+
+    @property
+    def disabled_plugins(self) -> list[str]:
+        return self.state.settings.disabled_plugins
 
     @property
     def plugin_settings(self) -> dict:
