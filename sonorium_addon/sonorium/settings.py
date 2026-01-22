@@ -122,6 +122,12 @@ def apply_addon_env():
     """
     Apply environment variables from HA addon options.
     Replaces fmtr.tools.ha.apply_addon_env().
+
+    Options in config.yaml are named like 'sonorium__port' which maps to
+    pydantic field 'port' with env_prefix 'SONORIUM__'.
+
+    The conversion is:
+      sonorium__port -> SONORIUM__PORT (env var) -> port (pydantic field)
     """
     options_path = Path("/data/options.json")
     if options_path.exists():
@@ -131,10 +137,12 @@ def apply_addon_env():
             with open(options_path) as f:
                 options = json.load(f)
             for key, value in options.items():
-                # Convert to environment variable format
-                env_key = f"SONORIUM__{key.upper()}"
+                # Options already have 'sonorium__' prefix matching pydantic env_prefix
+                # Just uppercase the key directly: sonorium__port -> SONORIUM__PORT
+                env_key = key.upper()
                 if value is not None and value != "":
                     os.environ[env_key] = str(value)
+                    logger.debug(f"  Set {env_key}={value}")
         except Exception as e:
             logger.warning(f"Failed to load addon options: {e}")
 
@@ -153,8 +161,14 @@ class Settings(BaseSettings):
 
     stream_url: str = "auto"
 
-    # Default streaming port (matches config.yaml ports mapping)
-    stream_port: int = 8008
+    # Server port - configurable in HA addon options
+    # This is the port uvicorn listens on (host_network mode)
+    port: int = 8008
+
+    # Alias for backwards compatibility
+    @property
+    def stream_port(self) -> int:
+        return self.port
 
     # Maximum number of channels (1-10, configured in addon options)
     max_channels: int = 6
@@ -182,11 +196,11 @@ class Settings(BaseSettings):
         # Handle "auto" or empty - build URL from detected IP
         if not self.stream_url or self.stream_url.lower() == "auto":
             if local_ip:
-                self.stream_url = f"http://{local_ip}:{self.stream_port}"
+                self.stream_url = f"http://{local_ip}:{self.port}"
                 logger.info(f"Auto-configured stream URL: {self.stream_url}")
             else:
                 # Fallback if IP detection fails
-                self.stream_url = f"http://127.0.0.1:{self.stream_port}"
+                self.stream_url = f"http://127.0.0.1:{self.port}"
                 logger.error(f"IP detection failed! Using fallback: {self.stream_url}")
                 logger.error("Network speakers will NOT be able to connect. Check Supervisor API access.")
         # Handle homeassistant.local - replace with detected IP
@@ -235,6 +249,7 @@ class Settings(BaseSettings):
             logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
         logger.info(f'Launching sonorium {__version__=} from entrypoint.')
+        logger.info(f'Server port: {self.port}')
         logger.info(f'Stream URL: {self.stream_url}')
         logger.info(f'Max channels: {self.max_channels}')
         logger.info(f'Log level: {self.log_level}')

@@ -339,16 +339,20 @@ class ApiSonorium(api.Base):
 
         logger.info("Running server self-test...")
 
-        # Test 1: Check if port 8008 is bound
+        # Get configured port from settings
+        from sonorium.settings import settings
+        test_port = settings.port
+
+        # Test 1: Check if configured port is bound
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2)
-            result = sock.connect_ex(('127.0.0.1', 8008))
+            result = sock.connect_ex(('127.0.0.1', test_port))
             sock.close()
             if result == 0:
-                logger.info("  Self-test: Port 8008 is OPEN and listening")
+                logger.info(f"  Self-test: Port {test_port} is OPEN and listening")
             else:
-                logger.error(f"  Self-test: Port 8008 connection failed (error {result})")
+                logger.error(f"  Self-test: Port {test_port} connection failed (error {result})")
         except Exception as e:
             logger.error(f"  Self-test: Socket test failed: {e}")
 
@@ -356,7 +360,7 @@ class ApiSonorium(api.Base):
         try:
             import httpx
             async with httpx.AsyncClient() as client:
-                response = await client.get("http://127.0.0.1:8008/health", timeout=5.0)
+                response = await client.get(f"http://127.0.0.1:{test_port}/health", timeout=5.0)
                 if response.status_code == 200:
                     logger.info(f"  Self-test: /health endpoint responded: {response.json()}")
                 else:
