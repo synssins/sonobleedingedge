@@ -132,7 +132,7 @@ class ChromecastPlugin(SpeakerPlugin):
                     device = cc.cast_info
 
                     speaker = NetworkSpeaker(
-                        id=device.uuid,
+                        id=str(device.uuid),  # Convert UUID object to string
                         name=device.friendly_name or device.host,
                         model=device.model_name or "Chromecast",
                         manufacturer="Google",

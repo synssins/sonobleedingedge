@@ -142,6 +142,19 @@ class PluginManager:
             if not plugin.author and manifest.get("author"):
                 plugin.author = manifest["author"]
 
+            # Apply category from manifest or derive from plugin_type
+            if not plugin.category:
+                if manifest.get("category"):
+                    plugin.category = manifest["category"]
+                elif hasattr(plugin, 'plugin_type') and plugin.plugin_type:
+                    # Map plugin_type to category for UI grouping
+                    type_to_category = {
+                        "speaker": "speakers",
+                        "source": "sources",
+                        "importer": "importers",
+                    }
+                    plugin.category = type_to_category.get(plugin.plugin_type, "utilities")
+
             # Fallback: use directory name if still no id
             if not plugin.id:
                 plugin.id = plugin_dir.name

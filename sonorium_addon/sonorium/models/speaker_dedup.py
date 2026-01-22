@@ -107,9 +107,10 @@ class SpeakerDeduplicator:
 
         # 2. UUID match
         if speaker.uuid:
-            if speaker.uuid in self._by_uuid:
-                logger.debug(f"Dedup: Matched '{speaker.name}' by UUID {speaker.uuid}")
-                return self._by_uuid[speaker.uuid]
+            uuid_str = str(speaker.uuid)  # Ensure string for dict lookup
+            if uuid_str in self._by_uuid:
+                logger.debug(f"Dedup: Matched '{speaker.name}' by UUID {uuid_str}")
+                return self._by_uuid[uuid_str]
 
         # 3. IP address match
         if speaker.ip_address:
@@ -265,8 +266,9 @@ class SpeakerDeduplicator:
             indexed_by.append(f"MAC:{normalized_mac}")
 
         if speaker.uuid:
-            self._by_uuid[speaker.uuid] = speaker
-            indexed_by.append(f"UUID:{speaker.uuid[:20]}...")
+            uuid_str = str(speaker.uuid)  # Ensure UUID is string for indexing
+            self._by_uuid[uuid_str] = speaker
+            indexed_by.append(f"UUID:{uuid_str[:20]}...")
 
         if speaker.ip_address:
             self._by_ip[speaker.ip_address] = speaker
@@ -287,7 +289,7 @@ class SpeakerDeduplicator:
             self._by_mac.pop(normalized_mac, None)
 
         if old.uuid:
-            self._by_uuid.pop(old.uuid, None)
+            self._by_uuid.pop(str(old.uuid), None)  # Ensure string key
 
         if old.ip_address:
             self._by_ip.pop(old.ip_address, None)
