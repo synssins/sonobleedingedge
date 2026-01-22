@@ -102,16 +102,19 @@ class SpeakerDeduplicator:
         if speaker.mac_address:
             normalized_mac = self._normalize_mac(speaker.mac_address)
             if normalized_mac in self._by_mac:
+                logger.debug(f"Dedup: Matched '{speaker.name}' by MAC {normalized_mac}")
                 return self._by_mac[normalized_mac]
 
         # 2. UUID match
         if speaker.uuid:
             if speaker.uuid in self._by_uuid:
+                logger.debug(f"Dedup: Matched '{speaker.name}' by UUID {speaker.uuid}")
                 return self._by_uuid[speaker.uuid]
 
         # 3. IP address match
         if speaker.ip_address:
             if speaker.ip_address in self._by_ip:
+                logger.debug(f"Dedup: Matched '{speaker.name}' by IP {speaker.ip_address}")
                 return self._by_ip[speaker.ip_address]
 
         # 4. Fuzzy name match (fallback)
@@ -127,11 +130,23 @@ class SpeakerDeduplicator:
                 # Additional check: same network segment (if IPs known)
                 if speaker.ip_address and existing.ip_address:
                     if self._same_subnet(speaker.ip_address, existing.ip_address):
+                        logger.debug(
+                            f"Dedup: Matched '{speaker.name}' to '{existing.name}' "
+                            f"by fuzzy name + subnet"
+                        )
                         return existing
                 elif not speaker.ip_address or not existing.ip_address:
                     # Can't verify subnet, but names match well enough
+                    logger.debug(
+                        f"Dedup: Matched '{speaker.name}' to '{existing.name}' by fuzzy name"
+                    )
                     return existing
 
+        # No match found - log what we tried
+        logger.debug(
+            f"Dedup: No match for '{speaker.name}' "
+            f"(IP={speaker.ip_address}, MAC={speaker.mac_address}, UUID={speaker.uuid})"
+        )
         return None
 
     def _names_match(self, name1: str, name2: str) -> bool:
@@ -242,17 +257,27 @@ class SpeakerDeduplicator:
 
     def _index_speaker(self, speaker: UnifiedSpeaker) -> None:
         """Add a speaker to all relevant indexes."""
+        indexed_by = []
+
         if speaker.mac_address:
             normalized_mac = self._normalize_mac(speaker.mac_address)
             self._by_mac[normalized_mac] = speaker
+            indexed_by.append(f"MAC:{normalized_mac}")
 
         if speaker.uuid:
             self._by_uuid[speaker.uuid] = speaker
+            indexed_by.append(f"UUID:{speaker.uuid[:20]}...")
 
         if speaker.ip_address:
             self._by_ip[speaker.ip_address] = speaker
+            indexed_by.append(f"IP:{speaker.ip_address}")
 
         self._by_canonical_id[speaker.canonical_id] = speaker
+
+        logger.debug(
+            f"Indexed speaker '{speaker.name}' - "
+            f"found_by={speaker.found_by_list}, indexed_by=[{', '.join(indexed_by) or 'canonical_id only'}]"
+        )
 
     def _update_indexes(self, old: UnifiedSpeaker, new: UnifiedSpeaker) -> None:
         """Update indexes when a speaker is merged/updated."""

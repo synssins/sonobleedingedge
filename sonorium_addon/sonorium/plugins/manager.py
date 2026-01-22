@@ -141,8 +141,6 @@ class PluginManager:
                 plugin.description = manifest["description"]
             if not plugin.author and manifest.get("author"):
                 plugin.author = manifest["author"]
-            if not plugin.category and manifest.get("category"):
-                plugin.category = manifest["category"]
 
             # Fallback: use directory name if still no id
             if not plugin.id:

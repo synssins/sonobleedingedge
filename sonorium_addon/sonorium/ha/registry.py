@@ -649,6 +649,17 @@ class HARegistry:
                 )
                 speakers[entity_id] = speaker
 
+                # Log what identifiers we extracted (helps debug deduplication)
+                ids = []
+                if ip_address:
+                    ids.append(f"IP:{ip_address}")
+                if mac_address:
+                    ids.append(f"MAC:{mac_address}")
+                logger.debug(
+                    f"  HA Speaker: {name} ({entity_id}) - "
+                    f"identifiers: [{', '.join(ids) or 'none'}]"
+                )
+
             logger.info(f"  Found {len(speakers)} media players (from {media_player_count} total)")
             if matched_by_device > 0:
                 logger.info(f"  Matched {matched_by_device} speakers to areas via device inheritance")

@@ -118,7 +118,6 @@ class BasePlugin(ABC):
     version: str = "1.0.0"
     description: str = ""
     author: str = ""
-    category: str = ""  # Category for UI grouping (e.g., "speakers", "importers", "utilities")
     builtin: bool = False  # True for plugins shipped with Sonorium
 
     def __init__(self, plugin_dir: Path, settings: dict, audio_path: Optional[Path] = None):
@@ -286,7 +285,6 @@ class BasePlugin(ABC):
             "version": self.version,
             "description": self.description,
             "author": self.author,
-            "category": self.category,
             "enabled": self.enabled,
             "builtin": self._builtin,
             "settings": self.settings,
