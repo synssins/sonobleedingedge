@@ -28,12 +28,13 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     python-multipart \
     soco
 
-# Install fmtr.tools (for API layer), paho-mqtt (for HA entities), pydantic-settings, pychromecast
+# Install fmtr.tools (for API layer), paho-mqtt (for HA entities), pydantic-settings, pychromecast, pyatv
 RUN pip3 install --no-cache-dir --break-system-packages \
     'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]' \
     paho-mqtt \
     pydantic-settings \
-    pychromecast
+    pychromecast \
+    pyatv
 
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/

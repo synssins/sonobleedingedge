@@ -27,6 +27,12 @@
                 "title": "Scan Subnet",
                 "description": "Scan local subnet for Linkplay devices (port 49152)",
                 "default": true
+            },
+            "target_subnet": {
+                "type": "string",
+                "title": "Target Subnet",
+                "description": "Subnet to scan (e.g., '192.168.1' for 192.168.1.0/24). Leave empty for auto-detect.",
+                "default": ""
             }
         }
     }

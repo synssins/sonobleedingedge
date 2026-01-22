@@ -52,12 +52,13 @@ class LinkplayPlugin(SpeakerPlugin):
         # Settings
         self._discovery_timeout = settings.get("discovery_timeout", 5)
         self._scan_subnet = settings.get("scan_subnet", True)
+        self._target_subnet = settings.get("target_subnet", "")
 
         # Active sessions
         self._active_hosts: dict[str, str] = {}
 
     def _get_local_ip(self) -> Optional[str]:
-        """Get local IP address."""
+        """Get local IP address, preferring non-Docker networks."""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -66,6 +67,32 @@ class LinkplayPlugin(SpeakerPlugin):
             return ip
         except Exception:
             return None
+
+    def _get_target_subnet(self) -> Optional[str]:
+        """Get the target subnet prefix for scanning."""
+        # Use configured subnet if provided
+        if self._target_subnet:
+            # Normalize: remove trailing dots, ensure 3 octets
+            subnet = self._target_subnet.strip().rstrip('.')
+            parts = subnet.split('.')
+            if len(parts) >= 3:
+                return '.'.join(parts[:3])
+            logger.warning(f"Invalid target_subnet '{self._target_subnet}', using auto-detect")
+
+        # Auto-detect: try to find non-Docker network
+        local_ip = self._get_local_ip()
+        if not local_ip:
+            return None
+
+        # Filter out common Docker/virtual network ranges
+        docker_prefixes = ['172.17.', '172.18.', '172.19.', '172.30.', '172.31.']
+        if any(local_ip.startswith(prefix) for prefix in docker_prefixes):
+            logger.warning(
+                f"Detected Docker network {local_ip}, speakers may not be found. "
+                f"Set 'target_subnet' in plugin settings (e.g., '192.168.1')."
+            )
+
+        return '.'.join(local_ip.split('.')[:3])
 
     async def discover_speakers(self) -> list[NetworkSpeaker]:
         """
@@ -84,12 +111,11 @@ class LinkplayPlugin(SpeakerPlugin):
 
             logger.info("Starting Linkplay direct probe discovery...")
 
-            local_ip = self._get_local_ip()
-            if not local_ip:
-                logger.warning("Could not determine local IP for Linkplay scan")
+            subnet_prefix = self._get_target_subnet()
+            if not subnet_prefix:
+                logger.warning("Could not determine subnet for Linkplay scan")
                 return discovered
 
-            subnet_prefix = '.'.join(local_ip.split('.')[:3])
             logger.info(f"Scanning subnet {subnet_prefix}.0/24 for Linkplay devices...")
 
             async def probe_host(host: str) -> Optional[NetworkSpeaker]:
