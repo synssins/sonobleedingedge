@@ -1863,6 +1863,22 @@ def create_api_router(
                         with zf.open(member) as src, open(target_path, 'wb') as dst:
                             dst.write(src.read())
 
+            # Update manifest.json with category from catalog (in case ZIP has outdated manifest)
+            manifest_path = target_dir / 'manifest.json'
+            if manifest_path.exists():
+                import json
+                try:
+                    with open(manifest_path, 'r') as f:
+                        manifest = json.load(f)
+                    # Ensure category is set from catalog
+                    if plugin_info.get('category') and not manifest.get('category'):
+                        manifest['category'] = plugin_info['category']
+                        with open(manifest_path, 'w') as f:
+                            json.dump(manifest, f, indent=2)
+                        logger.info(f"Updated manifest with category: {plugin_info['category']}")
+                except Exception as e:
+                    logger.warning(f"Could not update manifest with category: {e}")
+
             # Remove from deleted_builtin_plugins if reinstalling a previously deleted builtin
             # Check both plugin_id and target_name since they might differ
             deleted_list = plugin_manager.state_store.settings.deleted_builtin_plugins

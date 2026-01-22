@@ -69,27 +69,34 @@ def get_user_plugins_dir() -> Path:
     return user_dir
 
 
-def get_all_plugin_dirs() -> List[Path]:
+def get_all_plugin_dirs(include_bundled: bool = False) -> List[Path]:
     """
-    Get all plugin directories to scan, in priority order.
+    Get all plugin directories to scan.
 
-    User plugins directory is first (higher priority for overrides),
-    followed by bundled plugins directory.
+    By default, only returns user-installed plugins directory.
+    Bundled plugins are NOT loaded unless explicitly requested.
+
+    Users should install plugins from the catalog - bundled plugins
+    in the Docker image are only for reference/development.
+
+    Args:
+        include_bundled: If True, also include bundled plugins (for development)
 
     Returns:
         List of plugin directory paths
     """
     dirs = []
 
-    # User plugins first (can override bundled)
+    # User plugins only by default
     user_dir = get_user_plugins_dir()
     if user_dir.exists():
         dirs.append(user_dir)
 
-    # Bundled plugins second
-    bundled_dir = get_bundled_plugins_dir()
-    if bundled_dir.exists() and bundled_dir != user_dir:
-        dirs.append(bundled_dir)
+    # Only include bundled if explicitly requested (e.g., for development)
+    if include_bundled:
+        bundled_dir = get_bundled_plugins_dir()
+        if bundled_dir.exists() and bundled_dir != user_dir:
+            dirs.append(bundled_dir)
 
     return dirs
 

@@ -84,14 +84,14 @@ class InstrumentedLogger(logging.Logger):
         def decorator(func: F) -> F:
             @functools.wraps(func)
             def sync_wrapper(*args, **kwargs):
-                msg = self._format_instrument_message(message_template, args, kwargs, func)
+                msg = self._format_instrument_message(message_template, args, kwargs)
                 if msg:
                     self.info(msg)
                 return func(*args, **kwargs)
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
-                msg = self._format_instrument_message(message_template, args, kwargs, func)
+                msg = self._format_instrument_message(message_template, args, kwargs)
                 if msg:
                     self.info(msg)
                 return await func(*args, **kwargs)
@@ -102,35 +102,16 @@ class InstrumentedLogger(logging.Logger):
 
         return decorator
 
-    def _format_instrument_message(
-        self, template: str, args: tuple, kwargs: dict, func=None
-    ) -> str:
+    def _format_instrument_message(self, template: str, args: tuple, kwargs: dict) -> str:
         """Format the instrument message template with available context."""
         if not template:
             return ""
         try:
-            # Build context from all available arguments
-            context = dict(kwargs)
-
-            # If we have a function, map positional args to parameter names
-            if func and args:
-                import inspect
-                sig = inspect.signature(func)
-                params = list(sig.parameters.keys())
-
-                # Skip 'self' for methods
-                start_idx = 0
-                if args and hasattr(args[0], '__class__') and params and params[0] == 'self':
-                    context['self'] = args[0]
-                    start_idx = 1
-
-                # Map remaining positional args to their parameter names
-                for i, arg in enumerate(args[start_idx:], start=start_idx):
-                    if i < len(params):
-                        context[params[i]] = arg
-
-            return template.format(**context)
-        except (KeyError, AttributeError, IndexError, ValueError):
+            # Try to format with self if it's a method
+            if args and hasattr(args[0], '__class__'):
+                return template.format(self=args[0], **kwargs)
+            return template.format(**kwargs)
+        except (KeyError, AttributeError, IndexError):
             return template
 
 
