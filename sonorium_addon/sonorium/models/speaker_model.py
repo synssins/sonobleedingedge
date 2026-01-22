@@ -182,6 +182,15 @@ class UnifiedSpeaker:
         Returns:
             New UnifiedSpeaker with merged information
         """
+        from sonorium.obs import logger
+
+        # Log merge operation for debugging
+        logger.debug(
+            f"Merging speakers: existing='{self.name}' (found_by={self.found_by_list}, "
+            f"IP={self.ip_address}) + incoming='{other.name}' "
+            f"(found_by={other.found_by_list}, IP={other.ip_address})"
+        )
+
         # Combine found_by sources
         combined_found_by = self.found_by | other.found_by
 
@@ -214,7 +223,7 @@ class UnifiedSpeaker:
         # Combine capabilities
         combined_caps = list(set(self.capabilities + other.capabilities))
 
-        return UnifiedSpeaker(
+        merged = UnifiedSpeaker(
             canonical_id=self.canonical_id,  # Keep original canonical_id
             name=name,
             ip_address=ip_address,
@@ -233,3 +242,10 @@ class UnifiedSpeaker:
             capabilities=combined_caps,
             extra=merged_extra,
         )
+
+        logger.debug(
+            f"Merge result: '{merged.name}' found_by={merged.found_by_list}, "
+            f"IP={merged.ip_address}, MAC={merged.mac_address}"
+        )
+
+        return merged
