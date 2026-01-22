@@ -174,11 +174,27 @@ class ClientSonorium:
     @logger.instrument('Connecting MQTT client to {self._mqtt.username}@{self._mqtt.hostname}:{self._mqtt.port}...')
     async def start(self):
         """Start the MQTT client and API server."""
+        import uvicorn
+
         # Connect to MQTT broker
         await self._mqtt.connect()
 
-        # Launch the API server
-        await self.API_CLASS.launch_async(self)
+        # Create the API instance
+        api_instance = self.API_CLASS(self)
+
+        # Configure uvicorn
+        config = uvicorn.Config(
+            app=api_instance.app,
+            host="0.0.0.0",
+            port=8080,
+            log_level="info",
+        )
+        server = uvicorn.Server(config)
+
+        logger.info("Starting uvicorn server on http://0.0.0.0:8080")
+
+        # Run the server (this blocks until shutdown)
+        await server.serve()
 
     async def stop(self):
         """Stop the client."""
