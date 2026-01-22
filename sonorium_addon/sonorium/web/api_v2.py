@@ -1694,6 +1694,19 @@ def create_api_router(
             return []
         return plugin_manager.list_plugins()
 
+    @router.get("/plugins/directories")
+    async def get_plugin_directories():
+        """
+        Get information about plugin directories.
+
+        Returns paths for:
+        - bundled: Read-only plugins shipped with the app
+        - user: Writable directory for user-installed plugins
+        """
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+        return plugin_manager.get_plugin_directories()
+
     # --- Plugin Catalog (Browse & Install from GitHub) ---
     # NOTE: These routes MUST come before /plugins/{plugin_id} to avoid route conflict
 

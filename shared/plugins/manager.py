@@ -12,11 +12,15 @@ from typing import Optional, TYPE_CHECKING
 from sonorium.plugins.base import BasePlugin
 from sonorium.plugins.loader import (
     get_plugins_dir,
+    get_bundled_plugins_dir,
+    get_user_plugins_dir,
+    get_all_plugin_dirs,
     discover_plugins,
     load_manifest,
     load_plugin_class,
     instantiate_plugin,
     save_manifest,
+    is_plugin_bundled,
 )
 from sonorium.plugins.events import EventTypes, get_event_bus
 from sonorium.obs import logger
@@ -58,7 +62,7 @@ class PluginManager:
 
     async def initialize(self) -> None:
         """
-        Discover and load all plugins.
+        Discover and load all plugins from all plugin directories.
 
         Should be called during application startup.
         """
@@ -66,13 +70,18 @@ class PluginManager:
             return
 
         logger.info("Initializing plugin manager...")
-        logger.info(f"Plugins directory: {self.plugins_dir}")
 
-        # Ensure plugins directory exists
+        # Log all plugin directories
+        all_dirs = get_all_plugin_dirs()
+        logger.info(f"Plugin search paths ({len(all_dirs)}):")
+        for i, d in enumerate(all_dirs):
+            logger.info(f"  [{i+1}] {d}")
+
+        # Ensure user plugins directory exists
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
 
-        # Discover and load plugins
-        plugin_dirs = discover_plugins(self.plugins_dir)
+        # Discover plugins from ALL directories (not just self.plugins_dir)
+        plugin_dirs = discover_plugins()  # No arg = scan all directories
         logger.info(f"Found {len(plugin_dirs)} plugin(s)")
 
         for plugin_dir in plugin_dirs:
@@ -107,8 +116,8 @@ class PluginManager:
             if plugin is None:
                 return None
 
-            # Set builtin flag from manifest if present
-            if manifest.get("builtin", False):
+            # Set builtin flag - check manifest first, then location
+            if manifest.get("builtin", False) or is_plugin_bundled(plugin_id):
                 plugin._builtin = True
 
             # Update manifest with plugin info if it was auto-generated
@@ -392,3 +401,35 @@ class PluginManager:
                     logger.error(
                         f"Error in {plugin.id}.on_theme_deleted: {e}"
                     )
+
+    # Plugin Directory Info
+
+    def get_plugin_directories(self) -> dict:
+        """
+        Get information about plugin directories.
+
+        Returns:
+            Dict with directory info for API responses
+        """
+        bundled = get_bundled_plugins_dir()
+        user = get_user_plugins_dir()
+        all_dirs = get_all_plugin_dirs()
+
+        return {
+            "bundled": {
+                "path": str(bundled),
+                "exists": bundled.exists(),
+                "writable": False,  # Bundled is read-only
+            },
+            "user": {
+                "path": str(user),
+                "exists": user.exists(),
+                "writable": user.exists() and user.is_dir(),
+            },
+            "all_paths": [str(d) for d in all_dirs],
+        }
+
+    @property
+    def state_store(self):
+        """Get the config/state store (for API compatibility)."""
+        return self.config

@@ -1,41 +1,109 @@
 """
 Sonorium Plugin Loader
 
-Handles discovery and dynamic loading of plugins from the plugins directory.
+Handles discovery and dynamic loading of plugins from multiple directories.
+Supports both bundled plugins (shipped with the app) and user-installed plugins.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional, Type
+from typing import Optional, Type, List
 
 from sonorium.plugins.base import BasePlugin
 from sonorium.obs import logger
 
 
-def get_plugins_dir() -> Path:
-    """Get the plugins directory."""
-    import sys
-    import os
+# ============================================================
+# Plugin Directory Functions
+# ============================================================
 
+def get_bundled_plugins_dir() -> Path:
+    """
+    Get the bundled plugins directory (read-only, shipped with the app).
+
+    Returns:
+        Path to bundled plugins directory
+    """
     if getattr(sys, 'frozen', False):
-        # Running as compiled EXE - plugins folder next to EXE
-        plugins_dir = Path(sys.executable).parent / 'plugins'
-    elif os.environ.get('SUPERVISOR_TOKEN'):
-        # Running in HA addon - plugins are inside the sonorium package
-        # /app/sonorium/plugins/ in Docker container
-        plugins_dir = Path(__file__).parent
+        # Running as compiled EXE - bundled plugins next to EXE
+        return Path(sys.executable).parent / 'plugins'
     else:
-        # Running as script - plugins folder next to project root
-        plugins_dir = Path(__file__).parent.parent.parent / 'plugins'
+        # Running as script - plugins are inside the sonorium package
+        # This is the same for both HA addon and development
+        return Path(__file__).parent
 
-    plugins_dir.mkdir(parents=True, exist_ok=True)
-    return plugins_dir
 
+def get_user_plugins_dir() -> Path:
+    """
+    Get the user plugins directory (writable, for user-installed plugins).
+
+    This is where users can install additional plugins via the UI.
+
+    Returns:
+        Path to user plugins directory
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as compiled EXE - user plugins in AppData
+        import appdirs
+        user_dir = Path(appdirs.user_data_dir("Sonorium", "Sonorium")) / 'plugins'
+    elif os.environ.get('SUPERVISOR_TOKEN'):
+        # Running in HA addon - user plugins in /data/plugins (persistent)
+        user_dir = Path('/data/plugins')
+    else:
+        # Running as script/development - user plugins in project root
+        user_dir = Path(__file__).parent.parent.parent / 'plugins'
+
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
+
+
+def get_all_plugin_dirs() -> List[Path]:
+    """
+    Get all plugin directories to scan, in priority order.
+
+    User plugins directory is first (higher priority for overrides),
+    followed by bundled plugins directory.
+
+    Returns:
+        List of plugin directory paths
+    """
+    dirs = []
+
+    # User plugins first (can override bundled)
+    user_dir = get_user_plugins_dir()
+    if user_dir.exists():
+        dirs.append(user_dir)
+
+    # Bundled plugins second
+    bundled_dir = get_bundled_plugins_dir()
+    if bundled_dir.exists() and bundled_dir != user_dir:
+        dirs.append(bundled_dir)
+
+    return dirs
+
+
+def get_plugins_dir() -> Path:
+    """
+    Get the primary plugins directory (for backwards compatibility).
+
+    Returns the user plugins directory as the primary writable location.
+    Use get_all_plugin_dirs() to get all directories for discovery.
+
+    Returns:
+        Path to primary (user) plugins directory
+    """
+    return get_user_plugins_dir()
+
+
+# ============================================================
+# Plugin Discovery
+# ============================================================
 
 def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
     """
@@ -46,15 +114,47 @@ def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
     structure (plugins/speakers/chromecast/).
 
     Args:
-        plugins_dir: Root directory to scan for plugins
+        plugins_dir: Specific directory to scan, or None to scan all directories
 
     Returns:
         List of paths to valid plugin directories
     """
-    if plugins_dir is None:
-        plugins_dir = get_plugins_dir()
+    if plugins_dir is not None:
+        # Scan specific directory
+        return _scan_plugins_dir(plugins_dir)
 
-    logger.info(f"Discovering plugins in: {plugins_dir}")
+    # Scan all plugin directories
+    all_dirs = get_all_plugin_dirs()
+    logger.info(f"Discovering plugins from {len(all_dirs)} location(s)")
+
+    plugin_dirs = []
+    seen_ids = set()  # Track plugin IDs to avoid duplicates
+
+    for search_dir in all_dirs:
+        found = _scan_plugins_dir(search_dir)
+        for plugin_dir in found:
+            plugin_id = plugin_dir.name
+            if plugin_id not in seen_ids:
+                plugin_dirs.append(plugin_dir)
+                seen_ids.add(plugin_id)
+            else:
+                logger.debug(f"Skipping duplicate plugin '{plugin_id}' from {search_dir}")
+
+    logger.info(f"Plugin discovery complete: found {len(plugin_dirs)} unique plugin(s)")
+    return plugin_dirs
+
+
+def _scan_plugins_dir(plugins_dir: Path) -> list[Path]:
+    """
+    Scan a single directory for plugins.
+
+    Args:
+        plugins_dir: Directory to scan
+
+    Returns:
+        List of plugin directory paths found
+    """
+    logger.info(f"Scanning for plugins in: {plugins_dir}")
 
     if not plugins_dir.exists():
         logger.warning(f"Plugins directory does not exist: {plugins_dir}")
@@ -75,9 +175,12 @@ def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
         except PermissionError as e:
             logger.warning(f"Permission denied scanning {directory}: {e}")
             return
+        except OSError as e:
+            logger.warning(f"Error scanning {directory}: {e}")
+            return
 
         for item in items:
-            if item.is_dir() and not item.name.startswith('__'):
+            if item.is_dir() and not item.name.startswith(('__', '.')):
                 plugin_file = item / "plugin.py"
                 if plugin_file.exists():
                     plugin_dirs.append(item)
@@ -87,9 +190,76 @@ def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
                     scan_directory(item, depth + 1)
 
     scan_directory(plugins_dir)
-    logger.info(f"Plugin discovery complete: found {len(plugin_dirs)} plugin(s)")
     return plugin_dirs
 
+
+def get_builtin_plugin_ids() -> list[str]:
+    """
+    Get list of plugin IDs that are bundled with the application.
+
+    These are the plugins shipped in the bundled plugins directory.
+
+    Returns:
+        List of plugin ID strings
+    """
+    bundled_dir = get_bundled_plugins_dir()
+    if not bundled_dir.exists():
+        return []
+
+    builtin_ids = []
+    for plugin_dir in _scan_plugins_dir(bundled_dir):
+        builtin_ids.append(plugin_dir.name)
+
+    return builtin_ids
+
+
+def is_plugin_bundled(plugin_id: str) -> bool:
+    """
+    Check if a plugin is a bundled (built-in) plugin.
+
+    Args:
+        plugin_id: The plugin ID to check
+
+    Returns:
+        True if plugin is bundled, False otherwise
+    """
+    return plugin_id in get_builtin_plugin_ids()
+
+
+def get_plugin_location(plugin_id: str) -> Optional[Path]:
+    """
+    Find where a specific plugin is located.
+
+    Searches all plugin directories for the given plugin ID.
+
+    Args:
+        plugin_id: The plugin ID to find
+
+    Returns:
+        Path to plugin directory, or None if not found
+    """
+    for search_dir in get_all_plugin_dirs():
+        # Check flat structure
+        direct_path = search_dir / plugin_id
+        if (direct_path / "plugin.py").exists():
+            return direct_path
+
+        # Check categorized structure (speakers/, sources/, etc.)
+        try:
+            for category in search_dir.iterdir():
+                if category.is_dir() and not category.name.startswith(('__', '.')):
+                    plugin_path = category / plugin_id
+                    if (plugin_path / "plugin.py").exists():
+                        return plugin_path
+        except (PermissionError, OSError):
+            continue
+
+    return None
+
+
+# ============================================================
+# Manifest Loading
+# ============================================================
 
 def load_manifest(plugin_dir: Path) -> dict:
     """
@@ -143,6 +313,10 @@ def save_manifest(plugin_dir: Path, manifest: dict) -> bool:
         logger.error(f"Failed to save manifest to {plugin_dir}: {e}")
         return False
 
+
+# ============================================================
+# Plugin Loading
+# ============================================================
 
 def load_plugin_class(plugin_dir: Path, manifest: dict) -> Optional[Type[BasePlugin]]:
     """
