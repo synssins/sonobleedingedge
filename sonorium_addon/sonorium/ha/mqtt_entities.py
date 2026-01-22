@@ -319,6 +319,168 @@ class SessionMQTTEntities:
         )
 
 
+class DirectSpeakerMQTTEntities:
+    """
+    Manages MQTT entities for a direct-discovered speaker (not in HA).
+
+    Creates HA entities that allow controlling speakers discovered by Sonorium
+    but not natively integrated with Home Assistant.
+
+    Entities created:
+    - switch.sonorium_speaker_{slug}_play - Play/stop toggle
+    - number.sonorium_speaker_{slug}_volume - Volume control
+    - sensor.sonorium_speaker_{slug}_info - Status info
+    """
+
+    def __init__(
+        self,
+        speaker,  # UnifiedSpeaker
+        entity_prefix: str,
+        mqtt_publish: Callable[[str, str, bool], Awaitable[None]],
+        device_info: dict,
+    ):
+        """
+        Initialize entity manager for a direct speaker.
+
+        Args:
+            speaker: UnifiedSpeaker from direct discovery
+            entity_prefix: Prefix for entity IDs (e.g., "sonorium")
+            mqtt_publish: Async function to publish MQTT messages
+            device_info: HA device info dict for grouping entities
+        """
+        self.speaker = speaker
+        self.prefix = entity_prefix
+        self.mqtt_publish = mqtt_publish
+        self.base_device_info = device_info
+
+        # Create slug from canonical_id (safe for entity IDs)
+        self.slug = speaker.canonical_id.replace("unified_", "").lower()
+        self.base_topic = "homeassistant"
+        self.state_topic_base = f"{entity_prefix}/speaker/{self.slug}"
+
+        # Device info specific to this speaker
+        self.device_info = {
+            "identifiers": [f"{entity_prefix}_speaker_{self.slug}"],
+            "name": f"Sonorium: {speaker.name}",
+            "model": speaker.model or "Network Speaker",
+            "manufacturer": speaker.manufacturer or "Unknown",
+            "via_device": device_info.get("identifiers", [[]])[0],
+        }
+
+    def _get_unique_id(self, suffix: str) -> str:
+        """Generate unique ID for an entity."""
+        return f"{self.prefix}_speaker_{self.slug}_{suffix}"
+
+    def _get_discovery_topic(self, component: str, suffix: str) -> str:
+        """Generate MQTT discovery topic."""
+        unique_id = self._get_unique_id(suffix)
+        return f"{self.base_topic}/{component}/{unique_id}/config"
+
+    async def publish_discovery(self):
+        """Publish MQTT discovery configs for speaker entities."""
+        import asyncio
+
+        await self._publish_play_switch()
+        await asyncio.sleep(0.05)
+        await self._publish_volume_number()
+        await asyncio.sleep(0.05)
+        await self._publish_info_sensor()
+
+        logger.info(f"Published MQTT discovery for direct speaker '{self.speaker.name}'")
+
+    async def remove_discovery(self):
+        """Remove MQTT discovery configs (publish empty payloads)."""
+        entities = [
+            ("switch", "play"),
+            ("number", "volume"),
+            ("sensor", "info"),
+        ]
+
+        for component, suffix in entities:
+            topic = self._get_discovery_topic(component, suffix)
+            await self.mqtt_publish(topic, "", retain=True)
+
+        logger.info(f"Removed MQTT discovery for direct speaker '{self.speaker.name}'")
+
+    async def update_state(self, is_playing: bool = False, volume: float = 1.0):
+        """Publish current state for all entities."""
+        # Play switch state
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/play/state",
+            "ON" if is_playing else "OFF",
+            retain=True,
+        )
+
+        # Volume number state (0-100)
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/volume/state",
+            str(int(volume * 100)),
+            retain=True,
+        )
+
+        # Info sensor - build status string
+        protocols = ", ".join(sorted(self.speaker.found_by))
+        info = f"{self.speaker.ip_address} ({protocols})"
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/info/state",
+            info,
+            retain=True,
+        )
+
+    async def _publish_play_switch(self):
+        """Publish play/stop switch discovery."""
+        unique_id = self._get_unique_id("play")
+        config = {
+            "name": f"{self.speaker.name} Play",
+            "unique_id": unique_id,
+            "default_entity_id": f"switch.{self.prefix}_speaker_{self.slug}_play",
+            "state_topic": f"{self.state_topic_base}/play/state",
+            "command_topic": f"{self.state_topic_base}/play/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:play-pause",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("switch", "play")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_volume_number(self):
+        """Publish volume control discovery."""
+        unique_id = self._get_unique_id("volume")
+        config = {
+            "name": f"{self.speaker.name} Volume",
+            "unique_id": unique_id,
+            "default_entity_id": f"number.{self.prefix}_speaker_{self.slug}_volume",
+            "state_topic": f"{self.state_topic_base}/volume/state",
+            "command_topic": f"{self.state_topic_base}/volume/set",
+            "min": 0,
+            "max": 100,
+            "step": 5,
+            "unit_of_measurement": "%",
+            "icon": "mdi:volume-high",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("number", "volume")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_info_sensor(self):
+        """Publish info sensor discovery."""
+        unique_id = self._get_unique_id("info")
+        config = {
+            "name": f"{self.speaker.name} Info",
+            "unique_id": unique_id,
+            "default_entity_id": f"sensor.{self.prefix}_speaker_{self.slug}_info",
+            "state_topic": f"{self.state_topic_base}/info/state",
+            "icon": "mdi:speaker-wireless",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("sensor", "info")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+
 class SonoriumMQTTManager:
     """
     Manages all MQTT entities for Sonorium.
@@ -338,6 +500,8 @@ class SonoriumMQTTManager:
         mqtt_client,  # paho or fmtr.tools mqtt client
         entity_prefix: str = "sonorium",
         theme_metadata_manager=None,
+        hybrid_speaker_manager=None,  # HybridSpeakerManager for direct speakers
+        plugin_manager=None,  # PluginManager for speaker control
     ):
         """
         Initialize the MQTT manager.
@@ -348,19 +512,26 @@ class SonoriumMQTTManager:
             mqtt_client: MQTT client for publishing
             entity_prefix: Prefix for entity IDs
             theme_metadata_manager: ThemeMetadataManager for preset access
+            hybrid_speaker_manager: HybridSpeakerManager for direct-discovered speakers
+            plugin_manager: PluginManager for controlling direct speakers
         """
         self.state = state_store
         self.session_manager = session_manager
         self.mqtt_client = mqtt_client
         self.prefix = entity_prefix
         self._theme_metadata_manager = theme_metadata_manager
+        self._hybrid_speaker_manager = hybrid_speaker_manager
+        self._plugin_manager = plugin_manager
 
         # Track session entity managers (per-session entities)
         self._session_entities: dict[str, SessionMQTTEntities] = {}
 
+        # Track direct speaker entity managers (canonical_id -> entities)
+        self._direct_speaker_entities: dict[str, DirectSpeakerMQTTEntities] = {}
+
         # Track selected session for global controls
         self._selected_session_id: str | None = None
-        
+
         # Session name to ID mapping for global controls
         self._session_name_to_id: dict[str, str] = {}
 
@@ -475,7 +646,7 @@ class SonoriumMQTTManager:
         await asyncio.sleep(0.5)
 
     async def initialize(self):
-        """Initialize MQTT entities for all sessions."""
+        """Initialize MQTT entities for all sessions and direct speakers."""
         logger.info("Initializing MQTT entities...")
 
         # Clear stale entities first
@@ -498,6 +669,74 @@ class SonoriumMQTTManager:
         await self._subscribe_commands()
 
         logger.info(f"MQTT initialized with {len(self._session_entities)} sessions")
+
+    async def initialize_direct_speakers(self):
+        """
+        Initialize MQTT entities for direct-discovered speakers.
+
+        Call this AFTER hybrid speaker discovery has completed.
+        Only creates entities for speakers that don't have HA entities.
+        """
+        if not self._hybrid_speaker_manager:
+            logger.debug("No hybrid speaker manager - skipping direct speaker MQTT entities")
+            return
+
+        direct_speakers = self._hybrid_speaker_manager.get_direct_only_speakers()
+        if not direct_speakers:
+            logger.info("No direct-only speakers to expose via MQTT")
+            return
+
+        logger.info(f"Creating MQTT entities for {len(direct_speakers)} direct-discovered speaker(s)...")
+
+        for speaker in direct_speakers:
+            await self.add_direct_speaker_entities(speaker)
+
+        logger.info(f"  Direct speaker MQTT entities: {len(self._direct_speaker_entities)} created")
+
+    async def add_direct_speaker_entities(self, speaker):
+        """Add MQTT entities for a direct-discovered speaker."""
+        if speaker.canonical_id in self._direct_speaker_entities:
+            return
+
+        entities = DirectSpeakerMQTTEntities(
+            speaker=speaker,
+            entity_prefix=self.prefix,
+            mqtt_publish=self._mqtt_publish,
+            device_info=self.device_info,
+        )
+
+        await entities.publish_discovery()
+        await entities.update_state()
+
+        self._direct_speaker_entities[speaker.canonical_id] = entities
+
+        # Subscribe to this speaker's command topics
+        await self._subscribe_direct_speaker_commands(speaker)
+
+    async def remove_direct_speaker_entities(self, canonical_id: str):
+        """Remove MQTT entities for a direct speaker."""
+        if canonical_id not in self._direct_speaker_entities:
+            return
+
+        entities = self._direct_speaker_entities.pop(canonical_id)
+        await entities.remove_discovery()
+
+    async def _subscribe_direct_speaker_commands(self, speaker):
+        """Subscribe to command topics for a direct speaker."""
+        slug = speaker.canonical_id.replace("unified_", "").lower()
+        topics = [
+            f"{self.prefix}/speaker/{slug}/play/set",
+            f"{self.prefix}/speaker/{slug}/volume/set",
+        ]
+
+        try:
+            if hasattr(self.mqtt_client, 'subscribe'):
+                for topic in topics:
+                    result = self.mqtt_client.subscribe(topic)
+                    if hasattr(result, '__await__'):
+                        await result
+        except Exception as e:
+            logger.error(f"Failed to subscribe to direct speaker topics: {e}")
     
     async def add_session_entities(self, session: Session):
         """Add MQTT entities for a new session."""
@@ -1215,7 +1454,98 @@ class SonoriumMQTTManager:
                 except ValueError:
                     logger.warning(f"Invalid volume value: {payload}")
                 return
-    
+
+        # === DIRECT SPEAKER COMMANDS ===
+        # Handle commands for direct-discovered speakers (not in HA)
+        if topic.startswith(f"{self.prefix}/speaker/"):
+            await self._handle_direct_speaker_command(topic, payload)
+            return
+
+    async def _handle_direct_speaker_command(self, topic: str, payload: str):
+        """Handle commands for direct-discovered speakers."""
+        # Parse topic: sonorium/speaker/{slug}/{command}/set
+        parts = topic.split("/")
+        if len(parts) < 5:
+            logger.warning(f"Invalid direct speaker topic format: {topic}")
+            return
+
+        slug = parts[2]
+        command = parts[3]
+
+        # Find the speaker entity
+        entities = None
+        speaker = None
+        for canonical_id, ent in self._direct_speaker_entities.items():
+            if ent.slug == slug:
+                entities = ent
+                speaker = ent.speaker
+                break
+
+        if not entities or not speaker:
+            logger.warning(f"Unknown direct speaker: {slug}")
+            return
+
+        # Find the appropriate plugin to control this speaker
+        plugin = self._find_plugin_for_speaker(speaker)
+        if not plugin:
+            logger.warning(f"No plugin found to control speaker: {speaker.name}")
+            return
+
+        # Handle command
+        if command == "play":
+            if payload == "ON":
+                # Get stream URL from session manager (use default channel)
+                stream_url = self.session_manager.stream_base_url + "/stream/channel0"
+                logger.info(f"MQTT: Playing to direct speaker {speaker.name} via {plugin.name}")
+                success = await plugin.play_url(speaker.uuid or speaker.canonical_id, stream_url)
+                if success:
+                    await entities.update_state(is_playing=True)
+            else:
+                logger.info(f"MQTT: Stopping direct speaker {speaker.name} via {plugin.name}")
+                await plugin.stop(speaker.uuid or speaker.canonical_id)
+                await entities.update_state(is_playing=False)
+
+        elif command == "volume":
+            try:
+                volume = int(float(payload))
+                level = volume / 100.0  # Convert 0-100 to 0.0-1.0
+                logger.info(f"MQTT: Setting volume on {speaker.name} to {volume}%")
+                await plugin.set_volume(speaker.uuid or speaker.canonical_id, level)
+                await entities.update_state(volume=level)
+            except ValueError:
+                logger.warning(f"Invalid volume value: {payload}")
+
+    def _find_plugin_for_speaker(self, speaker):
+        """Find the appropriate plugin to control a speaker based on its protocol."""
+        if not self._plugin_manager:
+            return None
+
+        # Get protocol from speaker's found_by set
+        protocol = speaker.protocol or (list(speaker.found_by)[0] if speaker.found_by else None)
+        if not protocol:
+            return None
+
+        # Map protocol to plugin ID
+        protocol_to_plugin = {
+            "sonos": "sonos",
+            "chromecast": "chromecast",
+            "airplay": "airplay",
+            "dlna": "dlna",
+            "linkplay": "linkplay",
+            "heos": "heos",
+        }
+
+        plugin_id = protocol_to_plugin.get(protocol.lower())
+        if not plugin_id:
+            return None
+
+        # Get the plugin
+        for plugin in self._plugin_manager.get_plugins_by_type("speaker"):
+            if plugin.id == plugin_id and plugin.enabled:
+                return plugin
+
+        return None
+
     async def sync_all_states(self):
         """Synchronize all entity states with current session data."""
         for session in self.state.sessions.values():

@@ -274,6 +274,8 @@ class ApiSonorium(api.Base):
                     session_manager=self._session_manager,
                     mqtt_client=self.client.mqtt_client,
                     theme_metadata_manager=self._theme_metadata_manager,
+                    hybrid_speaker_manager=self._hybrid_speaker_manager,
+                    plugin_manager=self._plugin_manager,
                 )
                 # Set available themes for the theme select entity
                 themes = [{"id": t.id, "name": t.name} for t in self.client.device.themes]
@@ -386,6 +388,11 @@ class ApiSonorium(api.Base):
                 f"Initial discovery complete: {speaker_count} speakers "
                 f"({ha_count} HA, {direct_count} direct-only)"
             )
+
+            # Create MQTT entities for direct-discovered speakers (not in HA)
+            # This allows controlling them from HA even without native integration
+            if self._mqtt_manager and direct_count > 0:
+                await self._mqtt_manager.initialize_direct_speakers()
         except Exception as e:
             logger.error(f"Initial speaker discovery failed: {e}")
 

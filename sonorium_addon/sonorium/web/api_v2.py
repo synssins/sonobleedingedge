@@ -955,6 +955,12 @@ def create_api_router(
             )
 
         result = await hybrid_speaker_manager.scan_network()
+
+        # Create MQTT entities for any newly discovered direct speakers
+        # This allows controlling them from HA even without native integration
+        if mqtt_manager and result.get("new", 0) > 0:
+            await mqtt_manager.initialize_direct_speakers()
+
         return {
             "status": "ok",
             **result,  # Include found, new, merged, by_protocol, speakers
