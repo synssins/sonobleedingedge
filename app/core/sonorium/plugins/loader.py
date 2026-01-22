@@ -18,12 +18,17 @@ from sonorium.obs import logger
 
 
 def get_plugins_dir() -> Path:
-    """Get the plugins directory (next to the EXE in a 'plugins' folder)."""
+    """Get the plugins directory."""
     import sys
+    import os
 
     if getattr(sys, 'frozen', False):
         # Running as compiled EXE - plugins folder next to EXE
         plugins_dir = Path(sys.executable).parent / 'plugins'
+    elif os.environ.get('SUPERVISOR_TOKEN'):
+        # Running in HA addon - plugins are inside the sonorium package
+        # /app/sonorium/plugins/ in Docker container
+        plugins_dir = Path(__file__).parent
     else:
         # Running as script - plugins folder next to project root
         plugins_dir = Path(__file__).parent.parent.parent / 'plugins'
@@ -49,8 +54,10 @@ def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
     if plugins_dir is None:
         plugins_dir = get_plugins_dir()
 
+    logger.info(f"Discovering plugins in: {plugins_dir}")
+
     if not plugins_dir.exists():
-        logger.info(f"Plugins directory does not exist: {plugins_dir}")
+        logger.warning(f"Plugins directory does not exist: {plugins_dir}")
         return []
 
     plugin_dirs = []
@@ -60,17 +67,27 @@ def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
         if depth > 2:  # Prevent infinite recursion
             return
 
-        for item in directory.iterdir():
-            if item.is_dir():
+        logger.debug(f"Scanning directory (depth {depth}): {directory}")
+
+        try:
+            items = list(directory.iterdir())
+            logger.debug(f"  Found {len(items)} items in {directory.name}")
+        except PermissionError as e:
+            logger.warning(f"Permission denied scanning {directory}: {e}")
+            return
+
+        for item in items:
+            if item.is_dir() and not item.name.startswith('__'):
                 plugin_file = item / "plugin.py"
                 if plugin_file.exists():
                     plugin_dirs.append(item)
-                    logger.debug(f"Found plugin directory: {item.relative_to(plugins_dir)}")
+                    logger.info(f"Found plugin: {item.name} at {item}")
                 else:
                     # Check subdirectories (for categorized structure like speakers/, sources/)
                     scan_directory(item, depth + 1)
 
     scan_directory(plugins_dir)
+    logger.info(f"Plugin discovery complete: found {len(plugin_dirs)} plugin(s)")
     return plugin_dirs
 
 
