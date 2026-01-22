@@ -160,7 +160,7 @@ def _scan_plugins_dir(plugins_dir: Path) -> list[Path]:
     Returns:
         List of plugin directory paths found
     """
-    logger.info(f"Scanning for plugins in: {plugins_dir}")
+    logger.debug(f"Scanning for plugins in: {plugins_dir}")
 
     if not plugins_dir.exists():
         logger.warning(f"Plugins directory does not exist: {plugins_dir}")
@@ -190,7 +190,7 @@ def _scan_plugins_dir(plugins_dir: Path) -> list[Path]:
                 plugin_file = item / "plugin.py"
                 if plugin_file.exists():
                     plugin_dirs.append(item)
-                    logger.info(f"Found plugin: {item.name} at {item}")
+                    logger.debug(f"Found plugin: {item.name} at {item}")
                 else:
                     # Check subdirectories (for categorized structure like speakers/, sources/)
                     scan_directory(item, depth + 1)
@@ -431,7 +431,7 @@ def instantiate_plugin(
             settings=settings,
             audio_path=audio_path,
         )
-        logger.info(f"Instantiated plugin: {instance.name} v{instance.version}")
+        logger.debug(f"Instantiated plugin: {instance.name} v{instance.version}")
         return instance
     except Exception as e:
         logger.error(f"Failed to instantiate plugin {plugin_class.__name__}: {e}")

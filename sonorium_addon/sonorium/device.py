@@ -74,7 +74,7 @@ class Sonorium:
         theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir()]
 
         logger.info(f'Scanning for themes in "{self.path_audio}"...')
-        logger.info(f'Found {len(theme_folders)} theme folder(s): {[f.name for f in theme_folders]}')
+        logger.debug(f'Theme folders: {[f.name for f in theme_folders]}')
 
         if not theme_folders:
             # Install bundled themes on first run

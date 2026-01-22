@@ -17,6 +17,7 @@ bashio::log.debug "  SUPERVISOR_TOKEN present: $([ -n "${SUPERVISOR_TOKEN:-}" ] 
 export SONORIUM__STREAM_URL="$(bashio::config 'sonorium__stream_url')"
 export SONORIUM__PATH_AUDIO="$(bashio::config 'sonorium__path_audio')"
 export SONORIUM__MAX_CHANNELS="$(bashio::config 'sonorium__max_channels')"
+export SONORIUM__LOG_LEVEL="$(bashio::config 'sonorium__log_level')"
 
 # MQTT Configuration - Priority: Manual config > bashio::services > Python fallback
 MQTT_HOST_CONFIG="$(bashio::config 'sonorium__mqtt_host')"
@@ -53,6 +54,7 @@ bashio::log.info "Configuration:"
 bashio::log.info "  Stream URL: ${SONORIUM__STREAM_URL}"
 bashio::log.info "  Audio Path: ${SONORIUM__PATH_AUDIO}"
 bashio::log.info "  Max Channels: ${SONORIUM__MAX_CHANNELS}"
+bashio::log.info "  Log Level: ${SONORIUM__LOG_LEVEL:-info}"
 bashio::log.info "  MQTT Host: ${SONORIUM__MQTT_HOST:-not set}"
 bashio::log.info "  MQTT Port: ${SONORIUM__MQTT_PORT:-not set}"
 

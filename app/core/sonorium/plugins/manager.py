@@ -73,9 +73,7 @@ class PluginManager:
 
         # Log all plugin directories
         all_dirs = get_all_plugin_dirs()
-        logger.info(f"Plugin search paths ({len(all_dirs)}):")
-        for i, d in enumerate(all_dirs):
-            logger.info(f"  [{i+1}] {d}")
+        logger.debug(f"Plugin search paths ({len(all_dirs)}): {[str(d) for d in all_dirs]}")
 
         # Ensure user plugins directory exists
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +99,7 @@ class PluginManager:
                 continue
             # Auto-enable speaker plugins
             if getattr(plugin, 'plugin_type', None) == 'speaker':
-                logger.info(f"Auto-enabling speaker plugin: {plugin_id}")
+                logger.debug(f"Auto-enabling speaker plugin: {plugin_id}")
                 await self.enable_plugin(plugin_id)
 
         self._initialized = True
@@ -163,7 +161,7 @@ class PluginManager:
 
             # Store plugin
             self.plugins[plugin.id] = plugin
-            logger.info(f"Loaded plugin: {plugin.name} ({plugin.id})")
+            logger.debug(f"Loaded plugin: {plugin.name} ({plugin.id})")
 
             # Emit plugin loaded event
             try:
@@ -288,7 +286,7 @@ class PluginManager:
                 disabled_list.remove(plugin_id)
 
             self.config.save()
-            logger.info(f"Enabled plugin: {plugin.name}")
+            logger.debug(f"Enabled plugin: {plugin.name}")
 
             # Emit plugin activated event
             try:

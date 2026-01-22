@@ -158,6 +158,7 @@ class Settings(BaseSettings):
 
     # Maximum number of channels (1-10, configured in addon options)
     max_channels: int = 6
+    log_level: str = "info"  # debug, info, warning, error
 
     @model_validator(mode='after')
     def resolve_stream_url(self):
@@ -211,13 +212,32 @@ class Settings(BaseSettings):
         asyncio.run(self.run_async())
 
     async def run_async(self):
+        import logging
         from sonorium.obs import logger
         from sonorium.paths import paths
         from sonorium.version import __version__
 
+        # Configure log level from addon settings
+        log_level_map = {
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+        }
+        level = log_level_map.get(self.log_level.lower(), logging.INFO)
+        logging.getLogger().setLevel(level)
+        logging.getLogger("sonorium").setLevel(level)
+        # Also set uvicorn log level
+        logging.getLogger("uvicorn").setLevel(level)
+        logging.getLogger("uvicorn.error").setLevel(level)
+        # Keep access logs at warning unless debug
+        if level > logging.DEBUG:
+            logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
         logger.info(f'Launching sonorium {__version__=} from entrypoint.')
         logger.info(f'Stream URL: {self.stream_url}')
         logger.info(f'Max channels: {self.max_channels}')
+        logger.info(f'Log level: {self.log_level}')
 
         logger.info(f'Launching...')
 

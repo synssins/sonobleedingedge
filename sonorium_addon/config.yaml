@@ -1,5 +1,5 @@
 name: SonoBleedingEdge
-version: "0.0.22"
+version: "0.0.23"
 slug: sonobleedingedge
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonobleedingedge
@@ -39,6 +39,7 @@ options:
   sonorium__stream_url: "auto"
   sonorium__path_audio: "/media/sonorium"
   sonorium__max_channels: 6
+  sonorium__log_level: "info"
   sonorium__mqtt_host: "auto"
   sonorium__mqtt_port: 0
   sonorium__mqtt_username: ""
@@ -48,6 +49,7 @@ schema:
   sonorium__stream_url: str?
   sonorium__path_audio: str
   sonorium__max_channels: int(1,10)
+  sonorium__log_level: list(debug|info|warning|error)?
   sonorium__mqtt_host: str?
   sonorium__mqtt_port: int?
   sonorium__mqtt_username: str?

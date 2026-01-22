@@ -182,19 +182,31 @@ class ClientSonorium:
         # Create the API instance
         api_instance = self.API_CLASS(self)
 
-        # Configure uvicorn
+        logger.info("Configuring uvicorn server...")
+        logger.info(f"  Host: 0.0.0.0, Port: 8080")
+        logger.info(f"  App routes: {len(api_instance.app.routes)}")
+
+        # Configure uvicorn with explicit settings
         config = uvicorn.Config(
             app=api_instance.app,
             host="0.0.0.0",
             port=8080,
             log_level="info",
+            access_log=True,
+            lifespan="on",  # Ensure lifespan events work
         )
         server = uvicorn.Server(config)
 
-        logger.info("Starting uvicorn server on http://0.0.0.0:8080")
+        logger.info("Starting uvicorn server...")
 
-        # Run the server (this blocks until shutdown)
-        await server.serve()
+        try:
+            # Run the server (this blocks until shutdown)
+            await server.serve()
+        except Exception as e:
+            logger.error(f"Uvicorn server error: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     async def stop(self):
         """Stop the client."""

@@ -72,11 +72,9 @@ class ApiSonorium(api.Base):
         else:
             logger.warning(f"Static directory not found: {STATIC_DIR}")
 
-        # Log all paths for debugging
-        logger.info(f"Path verification:")
-        logger.info(f"  TEMPLATES_DIR: {TEMPLATES_DIR} exists={TEMPLATES_DIR.exists()}")
-        logger.info(f"  STATIC_DIR: {STATIC_DIR} exists={STATIC_DIR.exists()}")
-        logger.info(f"  index.html: {TEMPLATES_DIR / 'index.html'} exists={(TEMPLATES_DIR / 'index.html').exists()}")
+        # Log paths at debug level
+        logger.debug(f"TEMPLATES_DIR: {TEMPLATES_DIR} exists={TEMPLATES_DIR.exists()}")
+        logger.debug(f"STATIC_DIR: {STATIC_DIR} exists={STATIC_DIR.exists()}")
 
         # Add a direct health check endpoint (bypasses fmtr.tools)
         @self.app.get("/health")
@@ -427,7 +425,7 @@ class ApiSonorium(api.Base):
         if not device.themes:
             return
 
-        logger.info("  Applying saved track settings to themes...")
+        themes_with_settings = 0
         for theme in device.themes:
             if not theme.instances:
                 continue
@@ -467,7 +465,10 @@ class ApiSonorium(api.Base):
                 inst.crossfade_enabled = not track_settings.seamless_loop
                 inst.exclusive = track_settings.exclusive
 
-            logger.info(f"    Applied settings to theme '{theme.name}'")
+            themes_with_settings += 1
+            logger.debug(f"Applied settings to theme '{theme.name}'")
+
+        logger.info(f"  Applied track settings to {themes_with_settings} theme(s)")
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
