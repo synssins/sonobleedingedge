@@ -680,6 +680,63 @@ Example:
                         <!-- Channels loaded dynamically -->
                     </div>
                 </div>
+
+                <!-- Internal Logs Panel -->
+                <div class="settings-section collapsible-section" style="margin-top: 1.5rem;">
+                    <div class="section-header" onclick="toggleLogsPanel()">
+                        <h3>
+                            <svg id="logs-chevron" class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                            Internal Logs
+                        </h3>
+                        <div class="section-controls">
+                            <span id="logs-count" class="badge">0</span>
+                        </div>
+                    </div>
+                    <div id="logs-panel" class="collapsible-content" style="display: none;">
+                        <div class="logs-toolbar">
+                            <div class="logs-filters">
+                                <select id="logs-category-filter" onchange="loadInternalLogs()">
+                                    <option value="">All Categories</option>
+                                    <option value="core">Core</option>
+                                    <option value="discovery">Discovery</option>
+                                    <option value="playback">Playback</option>
+                                    <option value="plugins">Plugins</option>
+                                    <option value="ha">Home Assistant</option>
+                                    <option value="mqtt">MQTT</option>
+                                    <option value="api">API</option>
+                                </select>
+                                <select id="logs-level-filter" onchange="loadInternalLogs()">
+                                    <option value="">All Levels</option>
+                                    <option value="debug">Debug+</option>
+                                    <option value="info">Info+</option>
+                                    <option value="warning">Warning+</option>
+                                    <option value="error">Errors Only</option>
+                                </select>
+                            </div>
+                            <div class="logs-actions">
+                                <button class="btn-secondary btn-small" onclick="loadInternalLogs()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="23 4 23 10 17 10"></polyline>
+                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                    </svg>
+                                    Refresh
+                                </button>
+                                <button class="btn-secondary btn-small btn-danger-outline" onclick="clearInternalLogs()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                    </svg>
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+                        <div id="logs-container" class="logs-container">
+                            <div class="logs-empty">No logs yet. Logs will appear here as the system operates.</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>

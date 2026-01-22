@@ -21,6 +21,7 @@ from sonorium.models.speaker_model import (
 )
 from sonorium.models.speaker_dedup import SpeakerDeduplicator
 from sonorium.obs import logger
+from sonorium.core.log_collector import get_log_collector, LogCategory
 
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
@@ -57,18 +58,36 @@ class HybridSpeakerManager:
         self.deduplicator = SpeakerDeduplicator()
         self._discovery_running = False
         self._discovery_interval = 30.0
+        self._log = get_log_collector()
 
         logger.info("HybridSpeakerManager initialized")
+        self._log.info(LogCategory.DISCOVERY, "HybridSpeakerManager initialized")
 
     def _get_speaker_plugins(self) -> list["SpeakerPlugin"]:
         """Get all enabled speaker plugins."""
         if not self.plugin_manager:
+            self._log.warning(LogCategory.DISCOVERY, "No plugin manager available")
             return []
 
+        all_plugins = self.plugin_manager.get_plugins_by_type("speaker")
+        self._log.debug(
+            LogCategory.DISCOVERY,
+            f"Found {len(all_plugins)} speaker plugins",
+            {"plugins": [p.id for p in all_plugins]}
+        )
+
         plugins = []
-        for plugin in self.plugin_manager.get_plugins_by_type("speaker"):
+        for plugin in all_plugins:
             if plugin.enabled:
                 plugins.append(plugin)
+            else:
+                self._log.debug(LogCategory.PLUGINS, f"Plugin '{plugin.id}' is not enabled")
+
+        self._log.info(
+            LogCategory.DISCOVERY,
+            f"Active speaker plugins: {len(plugins)}",
+            {"enabled": [p.id for p in plugins]}
+        )
         return plugins
 
     def _network_speaker_to_unified(

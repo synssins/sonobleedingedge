@@ -3718,6 +3718,89 @@ async function refreshStatus() {
     showToast('Status refreshed', 'success');
 }
 
+// Internal Logs Panel
+let logsPanelExpanded = false;
+
+function toggleLogsPanel() {
+    logsPanelExpanded = !logsPanelExpanded;
+    const panel = document.getElementById('logs-panel');
+    const chevron = document.getElementById('logs-chevron');
+
+    if (logsPanelExpanded) {
+        panel.style.display = 'block';
+        chevron.classList.add('expanded');
+        loadInternalLogs();
+    } else {
+        panel.style.display = 'none';
+        chevron.classList.remove('expanded');
+    }
+}
+
+async function loadInternalLogs() {
+    const categoryFilter = document.getElementById('logs-category-filter')?.value || '';
+    const levelFilter = document.getElementById('logs-level-filter')?.value || '';
+
+    try {
+        let url = '/api/logs?limit=100';
+        if (categoryFilter) url += `&category=${categoryFilter}`;
+        if (levelFilter) url += `&level=${levelFilter}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.status === 'ok') {
+            renderInternalLogs(data.logs);
+            document.getElementById('logs-count').textContent = data.count;
+        }
+    } catch (error) {
+        console.error('Failed to load logs:', error);
+    }
+}
+
+function renderInternalLogs(logs) {
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+
+    if (logs.length === 0) {
+        container.innerHTML = '<div class="logs-empty">No logs match the current filters.</div>';
+        return;
+    }
+
+    const html = logs.map(log => {
+        const timestamp = new Date(log.timestamp).toLocaleTimeString();
+        const levelClass = `log-level-${log.level}`;
+        const categoryLabel = log.category.toUpperCase();
+
+        return `
+            <div class="log-entry ${levelClass}">
+                <span class="log-timestamp">${timestamp}</span>
+                <span class="log-category">${categoryLabel}</span>
+                <span class="log-level">${log.level.toUpperCase()}</span>
+                <span class="log-message">${escapeHtml(log.message)}</span>
+                ${log.details ? `<span class="log-details">${escapeHtml(JSON.stringify(log.details))}</span>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+async function clearInternalLogs() {
+    const categoryFilter = document.getElementById('logs-category-filter')?.value || '';
+
+    try {
+        let url = '/api/logs';
+        if (categoryFilter) url += `?category=${categoryFilter}`;
+
+        await fetch(url, { method: 'DELETE' });
+        await loadInternalLogs();
+        showToast('Logs cleared', 'success');
+    } catch (error) {
+        console.error('Failed to clear logs:', error);
+        showToast('Failed to clear logs', 'error');
+    }
+}
+
 // Volume Slider
 document.getElementById('session-volume')?.addEventListener('input', function() {
     document.getElementById('volume-display').textContent = `${this.value}%`;

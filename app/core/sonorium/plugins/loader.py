@@ -37,6 +37,8 @@ def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
     Discover plugin directories.
 
     Each plugin must be a directory containing at least a plugin.py file.
+    Supports both flat structure (plugins/chromecast/) and categorized
+    structure (plugins/speakers/chromecast/).
 
     Args:
         plugins_dir: Root directory to scan for plugins
@@ -52,15 +54,23 @@ def discover_plugins(plugins_dir: Optional[Path] = None) -> list[Path]:
         return []
 
     plugin_dirs = []
-    for item in plugins_dir.iterdir():
-        if item.is_dir():
-            plugin_file = item / "plugin.py"
-            if plugin_file.exists():
-                plugin_dirs.append(item)
-                logger.debug(f"Found plugin directory: {item.name}")
-            else:
-                logger.debug(f"Skipping {item.name}: no plugin.py found")
 
+    def scan_directory(directory: Path, depth: int = 0):
+        """Recursively scan for plugin directories (max depth 2)."""
+        if depth > 2:  # Prevent infinite recursion
+            return
+
+        for item in directory.iterdir():
+            if item.is_dir():
+                plugin_file = item / "plugin.py"
+                if plugin_file.exists():
+                    plugin_dirs.append(item)
+                    logger.debug(f"Found plugin directory: {item.relative_to(plugins_dir)}")
+                else:
+                    # Check subdirectories (for categorized structure like speakers/, sources/)
+                    scan_directory(item, depth + 1)
+
+    scan_directory(plugins_dir)
     return plugin_dirs
 
 

@@ -2158,4 +2158,64 @@ def create_api_router(
             logger.error(f"Failed to uninstall plugin {plugin_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to uninstall plugin: {str(e)}")
 
+    # --- Internal Logs API ---
+
+    @router.get("/logs")
+    async def get_logs(
+        category: Optional[str] = None,
+        level: Optional[str] = None,
+        limit: int = 50
+    ):
+        """
+        Get internal logs for the Status page.
+
+        Args:
+            category: Filter by category (core, discovery, playback, plugins, ha, mqtt, api)
+            level: Filter by minimum level (debug, info, warning, error)
+            limit: Maximum entries to return (default 50)
+
+        Returns:
+            List of log entries, newest first
+        """
+        from sonorium.core.log_collector import get_log_collector
+
+        log_collector = get_log_collector()
+        logs = log_collector.get_logs(category=category, level=level, limit=limit)
+
+        return {
+            "status": "ok",
+            "count": len(logs),
+            "logs": logs
+        }
+
+    @router.get("/logs/categories")
+    async def get_log_categories():
+        """
+        Get list of log categories with entry counts.
+        """
+        from sonorium.core.log_collector import get_log_collector
+
+        log_collector = get_log_collector()
+        categories = log_collector.get_categories()
+
+        return {
+            "status": "ok",
+            "categories": categories
+        }
+
+    @router.delete("/logs")
+    async def clear_logs(category: Optional[str] = None):
+        """
+        Clear logs, optionally for a specific category.
+        """
+        from sonorium.core.log_collector import get_log_collector
+
+        log_collector = get_log_collector()
+        log_collector.clear(category=category)
+
+        return {
+            "status": "ok",
+            "message": f"Logs cleared" + (f" for category '{category}'" if category else "")
+        }
+
     return router
