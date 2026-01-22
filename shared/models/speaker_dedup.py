@@ -115,17 +115,22 @@ class SpeakerDeduplicator:
                 return self._by_ip[speaker.ip_address]
 
         # 4. Fuzzy name match (fallback)
-        # Only use if we have HA entity (prevents false matches with generic names)
-        if speaker.entity_id:
-            for existing in self._speakers.values():
-                if self._names_match(speaker.name, existing.name):
-                    # Additional check: same network segment (if IPs known)
-                    if speaker.ip_address and existing.ip_address:
-                        if self._same_subnet(speaker.ip_address, existing.ip_address):
-                            return existing
-                    elif not speaker.ip_address or not existing.ip_address:
-                        # Can't verify subnet, but names match well enough
+        # Use fuzzy matching if EITHER speaker has an HA entity (prevents false matches
+        # with generic names between two direct-only speakers, but allows direct-discovered
+        # speakers to match existing HA speakers)
+        for existing in self._speakers.values():
+            # Only fuzzy match if at least one side has an HA entity
+            if not speaker.entity_id and not existing.entity_id:
+                continue
+
+            if self._names_match(speaker.name, existing.name):
+                # Additional check: same network segment (if IPs known)
+                if speaker.ip_address and existing.ip_address:
+                    if self._same_subnet(speaker.ip_address, existing.ip_address):
                         return existing
+                elif not speaker.ip_address or not existing.ip_address:
+                    # Can't verify subnet, but names match well enough
+                    return existing
 
         return None
 
