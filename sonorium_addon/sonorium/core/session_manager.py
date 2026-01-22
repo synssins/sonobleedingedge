@@ -57,7 +57,7 @@ class SessionManager:
         self.state = state_store
         self.registry = ha_registry
         self.media_controller = media_controller
-        self.stream_base_url = stream_base_url or "http://localhost:8080"
+        self.stream_base_url = stream_base_url or "http://localhost:8008"
         self.channel_manager = channel_manager
         self.cycle_manager = cycle_manager
         self.themes = themes

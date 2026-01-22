@@ -184,7 +184,7 @@ class ClientSonorium:
         api_instance = self.API_CLASS(self)
 
         logger.info("Configuring uvicorn server...")
-        logger.info(f"  Host: 0.0.0.0, Port: 8080")
+        logger.info(f"  Host: 0.0.0.0, Port: 8008")
         logger.info(f"  App routes: {len(api_instance.app.routes)}")
 
         # Ensure uvicorn loggers are properly configured to output to stdout
@@ -203,10 +203,11 @@ class ClientSonorium:
         logger.info(f"  uvicorn.error handlers: {uvicorn_error_logger.handlers}")
 
         # Configure uvicorn with explicit settings
+        # Port 8008 is the standard Sonorium port (host_network mode, no port mapping)
         config = uvicorn.Config(
             app=api_instance.app,
             host="0.0.0.0",
-            port=8080,
+            port=8008,
             log_level="info",
             access_log=True,
             lifespan="on",  # Ensure lifespan events work

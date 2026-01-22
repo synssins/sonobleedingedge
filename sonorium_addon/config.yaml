@@ -1,5 +1,5 @@
 name: SonoBleedingEdge
-version: "0.0.27"
+version: "0.0.28"
 slug: sonobleedingedge
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonobleedingedge
@@ -18,7 +18,7 @@ host_network: true
 
 # Ingress - enables sidebar integration
 ingress: true
-ingress_port: 8080
+ingress_port: 8008
 ingress_stream: true
 panel_icon: mdi:music-circle
 panel_title: Sonorium
@@ -31,9 +31,9 @@ map:
   - config:rw
 
 ports:
-  8080/tcp: 8008
+  8008/tcp: 8008
 ports_description:
-  8080/tcp: "Sonorium Web UI and streaming API (direct access)"
+  8008/tcp: "Sonorium Web UI and streaming API (direct access)"
 
 options:
   sonorium__stream_url: "auto"
@@ -59,4 +59,4 @@ startup: application
 stage: stable
 
 # Direct web UI access (bypasses ingress)
-webui: http://[HOST]:[PORT:8080]/
+webui: http://[HOST]:[PORT:8008]/
