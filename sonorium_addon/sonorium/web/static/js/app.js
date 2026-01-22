@@ -4219,6 +4219,22 @@ async function loadPlugins() {
 // Track active plugins tab
 let activePluginsTab = 'installed';
 let pluginCatalog = null;
+let selectedCatalogCategory = 'all';
+
+// Category display names and icons
+const CATEGORY_INFO = {
+    'all': { name: 'All Plugins', icon: '📦' },
+    'speakers': { name: 'Speakers', icon: '🔊' },
+    'importers': { name: 'Importers', icon: '📥' },
+    'utilities': { name: 'Utilities', icon: '🔧' },
+    'sources': { name: 'Audio Sources', icon: '🎵' },
+    'effects': { name: 'Effects', icon: '✨' }
+};
+
+function switchCatalogCategory(category) {
+    selectedCatalogCategory = category;
+    renderPluginsView();
+}
 
 function renderPluginsView() {
     const container = document.getElementById('plugins-list');
@@ -4298,49 +4314,98 @@ function renderPluginsCatalog() {
         `;
     }
 
+    // Get unique categories from catalog
+    const categories = ['all', ...new Set(catalogPlugins.map(p => p.category).filter(Boolean))];
+
+    // Filter plugins by selected category
+    const filteredPlugins = selectedCatalogCategory === 'all'
+        ? catalogPlugins
+        : catalogPlugins.filter(p => p.category === selectedCatalogCategory);
+
+    // Count plugins per category
+    const categoryCounts = { 'all': catalogPlugins.length };
+    for (const plugin of catalogPlugins) {
+        if (plugin.category) {
+            categoryCounts[plugin.category] = (categoryCounts[plugin.category] || 0) + 1;
+        }
+    }
+
     let html = `
-        <div id="plugin-catalog-content">
-            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
-                Available plugins from the Sonorium catalog. Click Install to add a plugin.
-            </p>
+        <div id="plugin-catalog-content" class="catalog-layout">
+            <div class="catalog-sidebar">
+                <h4>Categories</h4>
+                <ul class="category-list">
     `;
 
-    for (const plugin of catalogPlugins) {
-        const isInstalled = plugin.installed;
-        const hasUpdate = plugin.update_available;
-
+    // Render category list
+    for (const cat of categories) {
+        const info = CATEGORY_INFO[cat] || { name: cat.charAt(0).toUpperCase() + cat.slice(1), icon: '📁' };
+        const isActive = selectedCatalogCategory === cat;
+        const count = categoryCounts[cat] || 0;
         html += `
-            <div class="plugin-card catalog-plugin ${isInstalled ? 'installed' : ''}">
-                <div class="plugin-header">
-                    <div class="plugin-info">
-                        <h4>${escapeHtml(plugin.name)}</h4>
-                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
-                        ${plugin.category ? `<span class="plugin-category">${escapeHtml(plugin.category)}</span>` : ''}
-                        ${isInstalled ? `<span class="plugin-status enabled">Installed${hasUpdate ? ' (Update Available)' : ''}</span>` : ''}
-                    </div>
-                    <div class="plugin-actions">
-                        ${isInstalled && hasUpdate ? `
-                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
-                                Update
-                            </button>
-                        ` : isInstalled ? `
-                            <button class="btn btn-sm btn-secondary" disabled>
-                                Installed
-                            </button>
-                        ` : `
-                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
-                                Install
-                            </button>
-                        `}
-                    </div>
-                </div>
-                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
-                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
-            </div>
+            <li class="category-item ${isActive ? 'active' : ''}" onclick="switchCatalogCategory('${cat}')">
+                <span class="category-icon">${info.icon}</span>
+                <span class="category-name">${escapeHtml(info.name)}</span>
+                <span class="category-count">${count}</span>
+            </li>
         `;
     }
 
-    html += '</div>';
+    html += `
+                </ul>
+            </div>
+            <div class="catalog-plugins">
+                <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+                    ${selectedCatalogCategory === 'all'
+                        ? 'Available plugins from the Sonorium catalog. Click Install to add a plugin.'
+                        : `${CATEGORY_INFO[selectedCatalogCategory]?.name || selectedCatalogCategory} plugins. Click Install to add a plugin.`}
+                </p>
+    `;
+
+    if (filteredPlugins.length === 0) {
+        html += `
+            <div class="empty-state" style="padding: 2rem; text-align: center;">
+                <p style="color: var(--text-muted);">No plugins in this category.</p>
+            </div>
+        `;
+    } else {
+        for (const plugin of filteredPlugins) {
+            const isInstalled = plugin.installed;
+            const hasUpdate = plugin.update_available;
+
+            html += `
+                <div class="plugin-card catalog-plugin ${isInstalled ? 'installed' : ''}">
+                    <div class="plugin-header">
+                        <div class="plugin-info">
+                            <h4>${escapeHtml(plugin.name)}</h4>
+                            <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
+                            ${plugin.category ? `<span class="plugin-category">${escapeHtml(plugin.category)}</span>` : ''}
+                            ${isInstalled ? `<span class="plugin-status enabled">Installed${hasUpdate ? ' (Update Available)' : ''}</span>` : ''}
+                        </div>
+                        <div class="plugin-actions">
+                            ${isInstalled && hasUpdate ? `
+                                <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                    Update
+                                </button>
+                            ` : isInstalled ? `
+                                <button class="btn btn-sm btn-secondary" disabled>
+                                    Installed
+                                </button>
+                            ` : `
+                                <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                    Install
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                    ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
+                    ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
+                </div>
+            `;
+        }
+    }
+
+    html += '</div></div>';
     return html;
 }
 

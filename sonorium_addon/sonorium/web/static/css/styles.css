@@ -2359,6 +2359,116 @@ body {
     opacity: 0.8;
 }
 
+/* Catalog Layout with Category Sidebar */
+.catalog-layout {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 1.5rem;
+    min-height: 300px;
+}
+
+.catalog-sidebar {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    height: fit-content;
+    position: sticky;
+    top: 1rem;
+}
+
+.catalog-sidebar h4 {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.category-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.category-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.category-item:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.category-item.active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.category-icon {
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.category-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.category-count {
+    font-size: 0.75rem;
+    background: var(--bg-tertiary);
+    padding: 0.125rem 0.5rem;
+    border-radius: 10px;
+    color: var(--text-muted);
+}
+
+.category-item.active .category-count {
+    background: rgba(255,255,255,0.2);
+    color: white;
+}
+
+.catalog-plugins {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Responsive: Stack on smaller screens */
+@media (max-width: 600px) {
+    .catalog-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .catalog-sidebar {
+        position: static;
+    }
+
+    .category-list {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .category-item {
+        padding: 0.375rem 0.625rem;
+        font-size: 0.8rem;
+    }
+}
+
 /* Plugin Cards */
 .plugins-list {
     display: flex;
