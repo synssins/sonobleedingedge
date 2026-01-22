@@ -4220,6 +4220,7 @@ async function loadPlugins() {
 let activePluginsTab = 'installed';
 let pluginCatalog = null;
 let selectedCatalogCategory = 'all';
+let selectedInstalledCategory = 'all';
 
 // Category display names and icons
 const CATEGORY_INFO = {
@@ -4233,6 +4234,11 @@ const CATEGORY_INFO = {
 
 function switchCatalogCategory(category) {
     selectedCatalogCategory = category;
+    renderPluginsView();
+}
+
+function switchInstalledCategory(category) {
+    selectedInstalledCategory = category;
     renderPluginsView();
 }
 
@@ -4431,41 +4437,32 @@ async function installFromCatalog(pluginId) {
 }
 
 function renderInstalledPlugins() {
-    // Upload section
+    // Upload section at the top
     let html = `
-        <div class="plugin-upload-section">
-            <h4>Install Plugin</h4>
-            <p style="color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.9rem;">
-                Upload a plugin ZIP file containing <code>plugin.py</code> with required class attributes.
-            </p>
-            <details style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-muted);">
-                <summary style="cursor: pointer; color: var(--accent-primary);">Plugin Requirements</summary>
-                <div style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
-                    <p style="margin: 0 0 0.5rem 0;"><strong>Required in plugin.py:</strong></p>
-                    <pre style="margin: 0; font-size: 0.8rem; overflow-x: auto;">class MyPlugin(BasePlugin):
-    id = "my_plugin"           # Unique identifier
-    name = "My Plugin"         # Display name
-    version = "1.0.0"          # Semantic version (MAJOR.MINOR.PATCH)
-    description = "..."        # Brief description
-    author = "Your Name"       # Plugin author</pre>
-                    <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem;">
-                        Optional: Include <code>manifest.json</code> for additional metadata.
-                    </p>
-                </div>
-            </details>
-            <div class="upload-controls">
-                <input type="file" id="plugin-file-input" accept=".zip" style="display: none;"
-                       onchange="handlePluginFileSelect(event)">
-                <button class="btn btn-primary" onclick="document.getElementById('plugin-file-input').click()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 0.5rem;">
+        <div class="plugin-upload-section" style="margin-bottom: 1.5rem;">
+            <details style="font-size: 0.9rem;">
+                <summary style="cursor: pointer; color: var(--accent-primary); font-weight: 500;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; vertical-align: middle; margin-right: 0.25rem;">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                         <polyline points="17 8 12 3 7 8"/>
                         <line x1="12" y1="3" x2="12" y2="15"/>
                     </svg>
-                    Upload Plugin
-                </button>
-                <span id="plugin-upload-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
-            </div>
+                    Upload Custom Plugin
+                </summary>
+                <div style="margin-top: 0.75rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
+                    <p style="color: var(--text-muted); margin-bottom: 0.75rem; font-size: 0.85rem;">
+                        Upload a plugin ZIP file containing <code>plugin.py</code> with required class attributes.
+                    </p>
+                    <div class="upload-controls">
+                        <input type="file" id="plugin-file-input" accept=".zip" style="display: none;"
+                               onchange="handlePluginFileSelect(event)">
+                        <button class="btn btn-primary btn-sm" onclick="document.getElementById('plugin-file-input').click()">
+                            Choose File
+                        </button>
+                        <span id="plugin-upload-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
+                    </div>
+                </div>
+            </details>
         </div>
     `;
 
@@ -4484,52 +4481,62 @@ function renderInstalledPlugins() {
         return html;
     }
 
-    // Group plugins by type
-    const pluginsByType = {
-        speaker: [],
-        importer: [],
-        utility: [],
-        automation: []
-    };
-
+    // Get unique categories from installed plugins (only show categories that have plugins)
+    const categoryCounts = { 'all': plugins.length };
     for (const plugin of plugins) {
-        const type = plugin.plugin_type || 'utility';
-        if (pluginsByType[type]) {
-            pluginsByType[type].push(plugin);
-        } else {
-            pluginsByType.utility.push(plugin);
-        }
+        const cat = plugin.category || 'utilities';  // Default to utilities if no category
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     }
 
-    // Plugin type labels and icons
-    const typeInfo = {
-        speaker: { label: 'Speaker Protocols', icon: 'M9 18V5l12-2v13M9 18c0 1.7-1.3 3-3 3s-3-1.3-3-3 1.3-3 3-3 3 1.3 3 3z', color: '#4CAF50' },
-        importer: { label: 'Theme Importers', icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12', color: '#2196F3' },
-        utility: { label: 'Utilities', icon: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z', color: '#FF9800' },
-        automation: { label: 'Automation', icon: 'M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5', color: '#9C27B0' }
-    };
+    // Build category list - only include categories that have installed plugins
+    const categories = ['all', ...Object.keys(categoryCounts).filter(c => c !== 'all').sort()];
 
-    // Render each plugin type section
-    for (const [type, typePlugins] of Object.entries(pluginsByType)) {
-        if (typePlugins.length === 0) continue;
+    // Filter plugins by selected category
+    const filteredPlugins = selectedInstalledCategory === 'all'
+        ? plugins
+        : plugins.filter(p => (p.category || 'utilities') === selectedInstalledCategory);
 
-        const info = typeInfo[type];
+    html += `
+        <div class="catalog-layout">
+            <div class="catalog-sidebar">
+                <h4>Categories</h4>
+                <ul class="category-list">
+    `;
+
+    // Render category list (only categories with installed plugins)
+    for (const cat of categories) {
+        const info = CATEGORY_INFO[cat] || { name: cat.charAt(0).toUpperCase() + cat.slice(1), icon: '📁' };
+        const isActive = selectedInstalledCategory === cat;
+        const count = categoryCounts[cat] || 0;
         html += `
-            <div class="plugin-type-section">
-                <h4 style="margin-top: 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="${info.color}" stroke-width="2" style="width: 18px; height: 18px;">
-                        <path d="${info.icon}"/>
-                    </svg>
-                    ${info.label}
-                    <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">(${typePlugins.length})</span>
-                </h4>
+            <li class="category-item ${isActive ? 'active' : ''}" onclick="switchInstalledCategory('${cat}')">
+                <span class="category-icon">${info.icon}</span>
+                <span class="category-name">${escapeHtml(info.name)}</span>
+                <span class="category-count">${count}</span>
+            </li>
         `;
+    }
 
-        for (const plugin of typePlugins) {
+    html += `
+                </ul>
+            </div>
+            <div class="catalog-plugins">
+    `;
+
+    if (filteredPlugins.length === 0) {
+        html += `
+            <div class="empty-state" style="padding: 2rem; text-align: center;">
+                <p style="color: var(--text-muted);">No plugins in this category.</p>
+            </div>
+        `;
+    } else {
+        for (const plugin of filteredPlugins) {
             const statusClass = plugin.enabled ? 'enabled' : 'disabled';
             const statusText = plugin.enabled ? 'Enabled' : 'Disabled';
             const toggleText = plugin.enabled ? 'Disable' : 'Enable';
             const isBuiltin = plugin.builtin || false;
+            const category = plugin.category || 'utilities';
+            const catInfo = CATEGORY_INFO[category] || { name: category, icon: '📁' };
 
             html += `
                 <div class="plugin-card ${statusClass}">
@@ -4537,8 +4544,8 @@ function renderInstalledPlugins() {
                         <div class="plugin-info">
                             <h4>${escapeHtml(plugin.name)}</h4>
                             <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
+                            <span class="plugin-category">${escapeHtml(category)}</span>
                             <span class="plugin-status ${statusClass}">${statusText}</span>
-                            <span class="plugin-type-badge" style="background: ${info.color}20; color: ${info.color}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">${type}</span>
                             ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
                         </div>
                         <div class="plugin-actions">
@@ -4574,9 +4581,9 @@ function renderInstalledPlugins() {
                 </div>
             `;
         }
-
-        html += '</div>';
     }
+
+    html += '</div></div>';
 
     return html;
 }
