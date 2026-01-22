@@ -21,9 +21,14 @@ SHARED_MAPPINGS = [
     ("plugins", "plugins"),           # Plugin system (base.py, speaker_base.py, etc.)
     ("platform", "platform"),         # Platform adapters (PathProvider, ConfigProvider)
     ("models", "models"),             # Platform-agnostic data models (UnifiedSpeaker, etc.)
-    ("network", "network"),           # Network utilities (subnet detection, etc.)
     # Future extractions:
     ("modules", "modules"),           # Optional features (recording, etc.)
+]
+
+# Individual core files that sync to the package root
+CORE_FILES = [
+    # (source file in shared/core/, destination filename)
+    ("utils.py", "utils.py"),         # Shared utilities (IndexList, sanitize, network funcs)
 ]
 
 # Sync from root plugins/ directory (actual plugin packages)
@@ -72,8 +77,21 @@ def sync_to_target(repo_root: Path, target_dir: Path, verbose: bool = False) -> 
     files_synced = 0
     shared_dir = repo_root / "shared"
     plugins_dir = repo_root / "plugins"
+    core_dir = shared_dir / "core"
 
-    # Sync from shared/
+    # Sync core files (individual files to package root)
+    for src_name, dst_name in CORE_FILES:
+        src_path = core_dir / src_name
+        dst_path = target_dir / dst_name
+
+        if not src_path.exists():
+            if verbose:
+                print(f"  Warning: Core file {src_path} does not exist, skipping")
+            continue
+
+        files_synced += sync_directory(src_path, dst_path, verbose)
+
+    # Sync from shared/ subdirectories
     for src_name, dst_name in SHARED_MAPPINGS:
         src_path = shared_dir / src_name
         dst_path = target_dir / dst_name
