@@ -15,10 +15,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sonorium.client import ClientSonorium
 
-for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
-    _logger = logging.getLogger(name)
-    _logger.handlers.clear()
-    _logger.propagate = False
+# Note: Uvicorn logging is left enabled for debugging
+# If logs get too verbose, suppress access logs only:
+# logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
 # Template directory
