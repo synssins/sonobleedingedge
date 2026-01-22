@@ -20,8 +20,8 @@ SHARED_MAPPINGS = [
     # (source in shared/, destination subdirectory)
     ("plugins", "plugins"),           # Plugin system (base.py, speaker_base.py, etc.)
     ("platform", "platform"),         # Platform adapters (PathProvider, ConfigProvider)
+    ("models", "models"),             # Platform-agnostic data models (UnifiedSpeaker, etc.)
     # Future extractions:
-    ("core", "core"),                 # Pure audio engine, themes, sessions
     ("modules", "modules"),           # Optional features (recording, etc.)
 ]
 

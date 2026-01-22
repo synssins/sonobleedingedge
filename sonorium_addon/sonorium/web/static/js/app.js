@@ -7,6 +7,7 @@ let speakerHierarchy = null;
 let speakerGroups = [];
 let enabledSpeakers = [];
 let channels = [];
+let unifiedSpeakers = [];  // Speakers from hybrid discovery (HA + direct)
 let selectedTheme = null;
 let selectedSpeakers = {
     floors: [],
@@ -31,6 +32,7 @@ async function init() {
             loadSpeakerHierarchy(),
             loadSpeakerGroups(),
             loadEnabledSpeakers(),
+            loadUnifiedSpeakers(),  // Load unified speakers from hybrid discovery
             loadChannels(),
             loadAudioSettings(),
             loadVersion(),
@@ -3532,6 +3534,18 @@ function renderSettingsArea(area, isAllEnabled) {
 function renderSettingsSpeaker(speaker, isAllEnabled) {
     const isEnabled = isAllEnabled || (enabledSpeakers || []).includes(speaker.entity_id);
     const ipDisplay = speaker.ip_address ? `<span class="speaker-ip">${escapeHtml(speaker.ip_address)}</span>` : '';
+
+    // Find unified speaker data for "Found By" badges (if available)
+    let foundByBadges = '';
+    if (unifiedSpeakers && unifiedSpeakers.length > 0) {
+        const unified = unifiedSpeakers.find(s => s.entity_id === speaker.entity_id);
+        if (unified && unified.found_by && unified.found_by.length > 0) {
+            foundByBadges = `<div class="speaker-found-by">${unified.found_by.map(source =>
+                `<span class="found-by-badge found-by-${source}">${source.toUpperCase()}</span>`
+            ).join('')}</div>`;
+        }
+    }
+
     return `
         <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
             <label class="toggle-switch">
@@ -3547,6 +3561,7 @@ function renderSettingsSpeaker(speaker, isAllEnabled) {
                 </svg>
                 <span>${escapeHtml(speaker.name)}</span>
                 ${ipDisplay}
+                ${foundByBadges}
             </div>
         </div>
     `;
@@ -3599,8 +3614,76 @@ async function refreshSpeakersFromHA() {
         const result = await api('POST', '/speakers/refresh');
         await loadSpeakerHierarchy();
         await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();  // Also refresh unified speakers
         renderSettingsSpeakerTree();
         showToast(`Found ${result.total_speakers || 0} speakers`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
+}
+
+// --- Unified Speaker Discovery ---
+
+async function loadUnifiedSpeakers() {
+    try {
+        const result = await api('GET', '/speakers/unified');
+        unifiedSpeakers = result.speakers || [];
+        console.log(`Loaded ${unifiedSpeakers.length} unified speakers`);
+    } catch (e) {
+        console.error('Failed to load unified speakers:', e);
+        unifiedSpeakers = [];
+    }
+}
+
+async function scanNetworkSpeakers() {
+    const container = document.getElementById('settings-speaker-tree');
+    if (container) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Scanning network for speakers...</div>';
+    }
+
+    try {
+        showToast('Scanning network...', 'info');
+        const result = await api('POST', '/speakers/scan-network');
+
+        // Refresh all speaker data after scan
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();
+        renderSettingsSpeakerTree();
+
+        const foundCount = result.found_count || 0;
+        const directOnly = unifiedSpeakers.filter(s => !s.entity_id).length;
+        if (directOnly > 0) {
+            showToast(`Found ${foundCount} speakers (${directOnly} not in Home Assistant)`, 'success');
+        } else {
+            showToast(`Found ${foundCount} speakers`, 'success');
+        }
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
+}
+
+async function discoverAllSpeakers() {
+    const container = document.getElementById('settings-speaker-tree');
+    if (container) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Discovering all speakers...</div>';
+    }
+
+    try {
+        showToast('Running full discovery...', 'info');
+        const result = await api('POST', '/speakers/discover');
+
+        // Refresh all speaker data
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        unifiedSpeakers = result.speakers || [];
+        renderSettingsSpeakerTree();
+
+        const haCount = result.ha_count || 0;
+        const directCount = result.direct_only_count || 0;
+        showToast(`Found ${result.speaker_count} speakers (${haCount} HA, ${directCount} direct-only)`, 'success');
     } catch (error) {
         showToast(error.message, 'error');
         renderSettingsSpeakerTree();

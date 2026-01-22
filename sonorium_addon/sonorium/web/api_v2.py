@@ -303,6 +303,7 @@ def create_api_router(
     cycle_manager=None,
     plugin_manager=None,
     mqtt_manager=None,
+    hybrid_speaker_manager=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -317,6 +318,7 @@ def create_api_router(
         cycle_manager: Optional CycleManager for theme cycling
         plugin_manager: Optional PluginManager for plugin endpoints
         mqtt_manager: Optional MQTT manager for HA entity updates
+        hybrid_speaker_manager: Optional HybridSpeakerManager for unified discovery
 
     Returns:
         Configured APIRouter
@@ -891,7 +893,101 @@ def create_api_router(
             "speakers": speakers,
             "count": len(speakers),
         }
-    
+
+    # --- Unified Speaker Discovery Endpoints ---
+
+    @router.get("/speakers/unified")
+    async def get_unified_speakers() -> dict:
+        """
+        Get all speakers from unified hybrid discovery.
+
+        Returns speakers from both HA registry and direct plugin discovery,
+        deduplicated and merged.
+        """
+        if not hybrid_speaker_manager:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Hybrid speaker manager not initialized"
+            )
+        return hybrid_speaker_manager.to_dict()
+
+    @router.post("/speakers/discover")
+    async def discover_speakers() -> dict:
+        """
+        Run full speaker discovery from all sources.
+
+        Refreshes HA registry and runs discovery on all enabled speaker plugins.
+        """
+        if not hybrid_speaker_manager:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Hybrid speaker manager not initialized"
+            )
+
+        speakers = await hybrid_speaker_manager.discover_all()
+        return {
+            "status": "ok",
+            "speaker_count": len(speakers),
+            "ha_count": len(hybrid_speaker_manager.get_ha_speakers()),
+            "direct_only_count": len(hybrid_speaker_manager.get_direct_only_speakers()),
+            "speakers": [s.to_dict() for s in speakers],
+        }
+
+    @router.post("/speakers/scan-network")
+    async def scan_network_speakers() -> dict:
+        """
+        Scan network for speakers using direct discovery plugins.
+
+        Does not refresh HA registry, only runs plugin discovery.
+        Useful for finding speakers not yet in Home Assistant.
+        """
+        if not hybrid_speaker_manager:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Hybrid speaker manager not initialized"
+            )
+
+        speakers = await hybrid_speaker_manager.scan_network()
+        return {
+            "status": "ok",
+            "found_count": len(speakers),
+            "speakers": [s.to_dict() for s in speakers],
+        }
+
+    @router.get("/speakers/unified/{canonical_id}")
+    async def get_unified_speaker(canonical_id: str) -> dict:
+        """Get a specific unified speaker by canonical ID."""
+        if not hybrid_speaker_manager:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Hybrid speaker manager not initialized"
+            )
+
+        speaker = hybrid_speaker_manager.get_speaker(canonical_id)
+        if not speaker:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Speaker not found: {canonical_id}"
+            )
+        return speaker.to_dict()
+
+    @router.get("/speakers/by-source/{source}")
+    async def get_speakers_by_source(source: str) -> list[dict]:
+        """
+        Get speakers found by a specific discovery source.
+
+        Args:
+            source: Discovery source (ha, sonos, chromecast, airplay, dlna, linkplay, heos)
+        """
+        if not hybrid_speaker_manager:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Hybrid speaker manager not initialized"
+            )
+
+        speakers = hybrid_speaker_manager.get_speakers_by_source(source)
+        return [s.to_dict() for s in speakers]
+
     # --- Settings Endpoints ---
     
     @router.get("/settings")

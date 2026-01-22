@@ -37,6 +37,7 @@ class Speaker:
     floor_id: Optional[str] = None
     floor_name: Optional[str] = None
     ip_address: Optional[str] = None
+    mac_address: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -47,7 +48,34 @@ class Speaker:
             "floor_id": self.floor_id,
             "floor_name": self.floor_name,
             "ip_address": self.ip_address,
+            "mac_address": self.mac_address,
         }
+
+    def to_unified_speaker(self) -> "UnifiedSpeaker":
+        """
+        Convert to UnifiedSpeaker format for hybrid discovery.
+
+        Returns:
+            UnifiedSpeaker with HA entity information
+        """
+        from sonorium.models.speaker_model import UnifiedSpeaker, DiscoverySource, ControlMethod
+
+        # Generate canonical_id from entity_id
+        canonical_id = f"unified_{self.entity_id.replace('.', '_')}"
+
+        return UnifiedSpeaker(
+            canonical_id=canonical_id,
+            name=self.name,
+            ip_address=self.ip_address,
+            mac_address=self.mac_address,
+            entity_id=self.entity_id,
+            area_id=self.area_id,
+            area_name=self.area_name,
+            floor_id=self.floor_id,
+            floor_name=self.floor_name,
+            found_by={DiscoverySource.HA.value},
+            preferred_control=ControlMethod.HA_SERVICE,
+        )
 
 
 @dataclass
@@ -516,6 +544,39 @@ class HARegistry:
 
         return None
 
+    def _extract_mac_address(
+        self,
+        entity_entry: dict,
+        device_registry: dict[str, dict]
+    ) -> Optional[str]:
+        """
+        Extract MAC address from device registry connections.
+
+        Args:
+            entity_entry: Entity registry entry
+            device_registry: Device registry dict
+
+        Returns:
+            MAC address string or None
+        """
+        device_id = entity_entry.get("device_id")
+        if not device_id or not device_registry:
+            return None
+
+        device = device_registry.get(device_id, {})
+        if not device:
+            return None
+
+        # Check device connections for MAC address
+        connections = device.get("connections", [])
+        for conn in connections:
+            if isinstance(conn, (list, tuple)) and len(conn) >= 2:
+                conn_type, conn_value = conn[0], conn[1]
+                if conn_type == "mac":
+                    return conn_value
+
+        return None
+
     def _fetch_speakers(self, entity_registry: dict[str, dict] = None, device_registry: dict[str, dict] = None, areas: dict[str, Area] = None) -> dict[str, Speaker]:
         """
         Fetch media_player entities from states.
@@ -575,14 +636,16 @@ class HARegistry:
                     if area_id:
                         matched_by_name += 1
 
-                # Try to extract IP address from various sources
+                # Try to extract IP and MAC addresses from various sources
                 ip_address = self._extract_ip_address(attributes, entity_entry, device_registry)
+                mac_address = self._extract_mac_address(entity_entry, device_registry)
 
                 speaker = Speaker(
                     entity_id=entity_id,
                     name=name,
                     area_id=area_id,
                     ip_address=ip_address,
+                    mac_address=mac_address,
                 )
                 speakers[entity_id] = speaker
 

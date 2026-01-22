@@ -1822,6 +1822,67 @@ body {
     opacity: 0.5;
 }
 
+/* Speaker IP address display */
+.speaker-ip {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: monospace;
+    margin-left: 0.5rem;
+}
+
+/* Found By badges for hybrid discovery */
+.speaker-found-by {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.found-by-badge {
+    font-size: 0.6rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+/* Source-specific badge colors */
+.found-by-ha {
+    background: #3b82f6;
+    color: white;
+}
+
+.found-by-sonos {
+    background: #f97316;
+    color: white;
+}
+
+.found-by-chromecast {
+    background: #10b981;
+    color: white;
+}
+
+.found-by-airplay {
+    background: #a855f7;
+    color: white;
+}
+
+.found-by-dlna {
+    background: #6366f1;
+    color: white;
+}
+
+.found-by-linkplay {
+    background: #ec4899;
+    color: white;
+}
+
+.found-by-heos {
+    background: #14b8a6;
+    color: white;
+}
+
 .speaker-ip {
     font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
     font-size: 0.75rem;

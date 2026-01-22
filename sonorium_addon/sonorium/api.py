@@ -51,6 +51,7 @@ class ApiSonorium(api.Base):
         self._cycle_manager = None
         self._mqtt_manager = None
         self._plugin_manager = None
+        self._hybrid_speaker_manager = None
         self._theme_metadata_manager = None
         
         # Register startup event to initialize v2
@@ -230,6 +231,23 @@ class ApiSonorium(api.Base):
                 logger.warning(f"  Failed to initialize plugin manager: {e}")
                 self._plugin_manager = None
 
+            # Initialize hybrid speaker manager for unified discovery
+            try:
+                from sonorium.core.hybrid_discovery import HybridSpeakerManager
+                self._hybrid_speaker_manager = HybridSpeakerManager(
+                    ha_registry=self._ha_registry,
+                    plugin_manager=self._plugin_manager,
+                )
+                # Run initial discovery
+                await self._hybrid_speaker_manager.discover_all()
+                speaker_count = len(self._hybrid_speaker_manager.get_speakers())
+                ha_count = len(self._hybrid_speaker_manager.get_ha_speakers())
+                direct_count = len(self._hybrid_speaker_manager.get_direct_only_speakers())
+                logger.info(f"  Hybrid speaker manager: {speaker_count} speakers ({ha_count} HA, {direct_count} direct-only)")
+            except Exception as e:
+                logger.warning(f"  Failed to initialize hybrid speaker manager: {e}")
+                self._hybrid_speaker_manager = None
+
             # Initialize MQTT entity manager for Home Assistant integration
             try:
                 from sonorium.ha.mqtt_entities import SonoriumMQTTManager
@@ -264,6 +282,7 @@ class ApiSonorium(api.Base):
                 cycle_manager=self._cycle_manager,
                 plugin_manager=self._plugin_manager,
                 mqtt_manager=self._mqtt_manager,
+                hybrid_speaker_manager=self._hybrid_speaker_manager,
             )
             self.app.include_router(api_router)
             

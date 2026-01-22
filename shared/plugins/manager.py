@@ -203,6 +203,21 @@ class PluginManager:
         """Get a plugin by ID."""
         return self.plugins.get(plugin_id)
 
+    def get_plugins_by_type(self, plugin_type: str) -> list[BasePlugin]:
+        """
+        Get all plugins of a specific type.
+
+        Args:
+            plugin_type: The plugin type to filter by (e.g., "speaker", "source")
+
+        Returns:
+            List of plugins matching the type
+        """
+        return [
+            plugin for plugin in self.plugins.values()
+            if getattr(plugin, 'plugin_type', None) == plugin_type
+        ]
+
     async def enable_plugin(self, plugin_id: str) -> bool:
         """
         Enable a plugin.
