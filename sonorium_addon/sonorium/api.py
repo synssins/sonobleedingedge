@@ -58,7 +58,11 @@ class ApiSonorium(api.Base):
         async def startup_event():
             logger.info("FastAPI startup event triggered")
             await self.initialize_v2()
-        
+            logger.info("FastAPI startup event COMPLETED - server should be listening now")
+            # Schedule a self-test to verify server is responding
+            import asyncio
+            asyncio.create_task(self._self_test_server())
+
         # Register shutdown event to stop cycle manager
         @self.app.on_event("shutdown")
         async def shutdown_event():
@@ -313,6 +317,46 @@ class ApiSonorium(api.Base):
             logger.error(f"  Failed to initialize v2 components: {e}")
             import traceback
             traceback.print_exc()
+
+    async def _self_test_server(self):
+        """
+        Self-test to verify the server is actually responding.
+        Runs as a background task after startup completes.
+        """
+        import asyncio
+        import socket
+
+        # Wait a moment for uvicorn to finish binding
+        await asyncio.sleep(2.0)
+
+        logger.info("Running server self-test...")
+
+        # Test 1: Check if port 8080 is bound
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex(('127.0.0.1', 8080))
+            sock.close()
+            if result == 0:
+                logger.info("  Self-test: Port 8080 is OPEN and listening")
+            else:
+                logger.error(f"  Self-test: Port 8080 connection failed (error {result})")
+        except Exception as e:
+            logger.error(f"  Self-test: Socket test failed: {e}")
+
+        # Test 2: Try to make an HTTP request to /health
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.get("http://127.0.0.1:8080/health", timeout=5.0)
+                if response.status_code == 200:
+                    logger.info(f"  Self-test: /health endpoint responded: {response.json()}")
+                else:
+                    logger.error(f"  Self-test: /health returned status {response.status_code}")
+        except Exception as e:
+            logger.error(f"  Self-test: HTTP request to /health failed: {e}")
+
+        logger.info("Server self-test complete")
 
     async def _run_initial_discovery(self):
         """

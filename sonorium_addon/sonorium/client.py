@@ -175,6 +175,7 @@ class ClientSonorium:
     async def start(self):
         """Start the MQTT client and API server."""
         import uvicorn
+        import logging as stdlib_logging
 
         # Connect to MQTT broker
         await self._mqtt.connect()
@@ -185,6 +186,21 @@ class ClientSonorium:
         logger.info("Configuring uvicorn server...")
         logger.info(f"  Host: 0.0.0.0, Port: 8080")
         logger.info(f"  App routes: {len(api_instance.app.routes)}")
+
+        # Ensure uvicorn loggers are properly configured to output to stdout
+        uvicorn_logger = stdlib_logging.getLogger("uvicorn")
+        uvicorn_error_logger = stdlib_logging.getLogger("uvicorn.error")
+        uvicorn_access_logger = stdlib_logging.getLogger("uvicorn.access")
+
+        # Add a handler if none exists
+        if not uvicorn_error_logger.handlers:
+            handler = stdlib_logging.StreamHandler()
+            handler.setFormatter(stdlib_logging.Formatter("%(levelname)s:     %(message)s"))
+            uvicorn_error_logger.addHandler(handler)
+        uvicorn_error_logger.setLevel(stdlib_logging.INFO)
+
+        logger.info(f"  uvicorn.error logger level: {uvicorn_error_logger.level}")
+        logger.info(f"  uvicorn.error handlers: {uvicorn_error_logger.handlers}")
 
         # Configure uvicorn with explicit settings
         config = uvicorn.Config(
@@ -198,6 +214,7 @@ class ClientSonorium:
         server = uvicorn.Server(config)
 
         logger.info("Starting uvicorn server...")
+        logger.info("  (server.serve() will block until shutdown)")
 
         try:
             # Run the server (this blocks until shutdown)
