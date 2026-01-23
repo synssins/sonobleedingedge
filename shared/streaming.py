@@ -183,6 +183,87 @@ class NetworkStreamingManager:
         """Get all active streaming sessions."""
         return list(self.sessions.values())
 
+    async def set_speaker_volume(self, speaker_id: str, volume: float) -> bool:
+        """
+        Set volume on a network speaker (0.0 to 1.0).
+
+        Args:
+            speaker_id: Speaker identifier
+            volume: Volume level 0.0 to 1.0
+
+        Returns:
+            True if successful
+        """
+        session = self.sessions.get(speaker_id)
+        if not session or not session._device:
+            logger.warning(f"No active session for speaker {speaker_id}")
+            return False
+
+        # Clamp volume to valid range
+        volume = max(0.0, min(1.0, volume))
+
+        try:
+            if session.speaker_type == 'sonos':
+                return await self._set_sonos_volume(session, volume)
+            elif session.speaker_type == 'chromecast':
+                return await self._set_chromecast_volume(session, volume)
+            elif session.speaker_type == 'dlna':
+                return await self._set_dlna_volume(session, volume)
+            elif session.speaker_type == 'heos':
+                return await self._set_heos_volume(session, volume)
+            else:
+                logger.warning(f"Volume control not implemented for {session.speaker_type}")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to set volume on {speaker_id}: {e}")
+            return False
+
+    async def _set_sonos_volume(self, session: StreamingSession, volume: float) -> bool:
+        """Set volume on a Sonos speaker (0.0 to 1.0 -> 0 to 100)."""
+        if not session._device:
+            return False
+        try:
+            loop = asyncio.get_event_loop()
+            sonos_volume = int(volume * 100)
+            await loop.run_in_executor(None, setattr, session._device, 'volume', sonos_volume)
+            logger.debug(f"Set Sonos volume to {sonos_volume}%")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting Sonos volume: {e}")
+            return False
+
+    async def _set_chromecast_volume(self, session: StreamingSession, volume: float) -> bool:
+        """Set volume on a Chromecast (0.0 to 1.0)."""
+        if not session._device:
+            return False
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, session._device.set_volume, volume)
+            logger.debug(f"Set Chromecast volume to {volume:.0%}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting Chromecast volume: {e}")
+            return False
+
+    async def _set_dlna_volume(self, session: StreamingSession, volume: float) -> bool:
+        """Set volume on a DLNA device (0.0 to 1.0 -> 0 to 100)."""
+        if not session._device:
+            return False
+        try:
+            dlna_volume = int(volume * 100)
+            await session._device.async_set_volume_level(dlna_volume)
+            logger.debug(f"Set DLNA volume to {dlna_volume}%")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting DLNA volume: {e}")
+            return False
+
+    async def _set_heos_volume(self, session: StreamingSession, volume: float) -> bool:
+        """Set volume on a HEOS speaker."""
+        # HEOS volume control would go here if needed
+        logger.warning("HEOS volume control not yet implemented")
+        return False
+
     # --- Chromecast Implementation ---
 
     async def _start_chromecast(self, session: StreamingSession, speaker_info: dict) -> bool:

@@ -203,6 +203,38 @@ def _stop_local_playback():
         stop_local()
 
 
+async def _apply_volume_to_network_speakers(session: 'Session', volume: float):
+    """
+    Apply volume to all network speakers in a session.
+
+    Args:
+        session: The session containing speaker references
+        volume: Volume level 0.0 to 1.0
+    """
+    from sonorium.streaming import get_streaming_manager
+
+    manager = get_streaming_manager()
+
+    for speaker_ref in session.speakers:
+        # Skip local speaker
+        if _is_local_speaker_ref(speaker_ref):
+            continue
+
+        # Extract speaker ID from 'network_speaker.{id}' format
+        if speaker_ref.startswith('network_speaker.'):
+            speaker_id = speaker_ref.replace('network_speaker.', '')
+        else:
+            speaker_id = speaker_ref
+
+        # Set volume on this speaker
+        try:
+            success = await manager.set_speaker_volume(speaker_id, volume)
+            if success:
+                logger.debug(f"Set volume {volume:.0%} on speaker {speaker_id}")
+        except Exception as e:
+            logger.warning(f"Failed to set volume on speaker {speaker_id}: {e}")
+
+
 def _load_sessions_from_config():
     """Load saved sessions from config file."""
     global _sessions
@@ -1015,6 +1047,11 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             # Apply volume immediately if this session is playing
             if session.is_playing:
                 _app_instance.set_volume(request.volume / 100.0)
+                # Apply to local playback if active
+                if session.use_local_speaker and is_local_playing():
+                    set_local_volume(request.volume / 100.0)
+                # Also set volume on network speakers directly
+                await _apply_volume_to_network_speakers(session, request.volume / 100.0)
 
         # Handle speaker selection changes (from adhoc_selection or direct speakers list)
         new_speakers_list = None
