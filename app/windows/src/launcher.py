@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.0.55"
+APP_VERSION = "0.0.56"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -805,11 +805,10 @@ class UpdateDialog(QDialog):
         """Handle download completion."""
         if success:
             self.downloaded_path = Path(message)
-            self.status_label.setText("Download complete! Click 'Install Now' to apply update.")
-            self.download_btn.setText("Install Now")
-            self.download_btn.setEnabled(True)
-            self.download_btn.clicked.disconnect()
-            self.download_btn.clicked.connect(self.install_update)
+            self.status_label.setText("Download complete! Installing...")
+            # Automatically proceed to install (no extra click needed)
+            QApplication.processEvents()
+            self.install_update()
         else:
             self.status_label.setText(f"Download failed: {message}")
             self.download_btn.setEnabled(True)
