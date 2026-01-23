@@ -23,9 +23,17 @@ try:
     import pychromecast
     from pychromecast.controllers.media import MediaController
     PYCHROMECAST_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PYCHROMECAST_AVAILABLE = False
     pychromecast = None
+    # Log will happen when plugin loads
+    _PYCHROMECAST_IMPORT_ERROR = str(e)
+except Exception as e:
+    PYCHROMECAST_AVAILABLE = False
+    pychromecast = None
+    _PYCHROMECAST_IMPORT_ERROR = str(e)
+else:
+    _PYCHROMECAST_IMPORT_ERROR = None
 
 
 class ChromecastPlugin(SpeakerPlugin):
@@ -65,10 +73,13 @@ class ChromecastPlugin(SpeakerPlugin):
     async def on_load(self) -> None:
         """Check for pychromecast availability."""
         if not PYCHROMECAST_AVAILABLE:
-            logger.warning(
-                f"{self.name}: pychromecast not installed. "
-                "Install with: pip install pychromecast"
+            error_msg = _PYCHROMECAST_IMPORT_ERROR or "unknown error"
+            logger.error(
+                f"{self.name}: pychromecast import FAILED: {error_msg}. "
+                "Chromecast discovery will be disabled."
             )
+        else:
+            logger.info(f"{self.name}: pychromecast loaded successfully")
 
     async def on_unload(self) -> None:
         """Clean up Cast connections."""
@@ -103,6 +114,7 @@ class ChromecastPlugin(SpeakerPlugin):
     async def discover_speakers(self) -> list[NetworkSpeaker]:
         """Discover Chromecast devices on the network."""
         if not PYCHROMECAST_AVAILABLE:
+            logger.warning(f"{self.name}: Skipping discovery - pychromecast not available")
             return []
 
         async with self._discovery_lock:
