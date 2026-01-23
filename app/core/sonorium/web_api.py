@@ -2231,26 +2231,61 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         Get unified speaker list from hybrid discovery (HA + direct).
 
         On standalone without HA configured, returns network-discovered speakers only.
-        When HA is configured, would include HA registry speakers merged with direct discovery.
+        Speakers discovered via multiple protocols (e.g., same device found as DLNA and AirPlay)
+        are merged into a single entry with all protocols listed in found_by.
         """
         from sonorium.network_speakers import get_discovered_speakers
+        from sonorium.models.speaker_dedup import SpeakerDeduplicator
+        from sonorium.models.speaker_model import UnifiedSpeaker, ControlMethod
 
         try:
             # Get directly discovered speakers
             direct_speakers = get_discovered_speakers()
 
-            # Format speakers for unified response
-            speakers = []
+            # Use SpeakerDeduplicator to merge speakers found by multiple protocols
+            deduplicator = SpeakerDeduplicator()
+
             for sp in direct_speakers:
-                speakers.append({
-                    'id': sp.get('id', sp.get('name', 'unknown')),
-                    'name': sp.get('name', 'Unknown Speaker'),
-                    'ip_address': sp.get('ip'),
-                    'protocol': sp.get('type', 'unknown'),
-                    'found_by': [sp.get('type', 'direct')],
-                    'available': sp.get('available', True),
-                    'entity_id': None,  # No HA entity in standalone
-                })
+                protocol = sp.get('type', 'unknown').lower()
+                ip_address = sp.get('host') or sp.get('ip')
+
+                # Create UnifiedSpeaker for deduplication
+                unified = UnifiedSpeaker(
+                    canonical_id='',  # Will be assigned by deduplicator
+                    name=sp.get('name', 'Unknown Speaker'),
+                    ip_address=ip_address,
+                    mac_address=sp.get('extra', {}).get('mac'),
+                    uuid=sp.get('uuid'),
+                    entity_id=None,  # No HA entity in standalone
+                    found_by={protocol},
+                    preferred_control=ControlMethod.DIRECT,
+                    protocol=protocol,
+                    model=sp.get('model'),
+                    manufacturer=sp.get('manufacturer'),
+                    capabilities=[],
+                    extra={
+                        'original_id': sp.get('id'),
+                        'port': sp.get('port'),
+                        'status': sp.get('status'),
+                        'available': sp.get('available', True),
+                    },
+                )
+
+                # Add to deduplicator (merges if duplicate found by IP/MAC/UUID)
+                deduplicator.add_speaker(unified)
+
+            # Get deduplicated speakers and convert to dict
+            deduplicated = deduplicator.get_speakers()
+            speakers = []
+            for speaker in deduplicated:
+                speaker_dict = speaker.to_dict()
+                # Add 'available' field for frontend compatibility
+                speaker_dict['available'] = speaker.extra.get('available', True)
+                # Add 'id' alias for canonical_id for backwards compatibility
+                speaker_dict['id'] = speaker.canonical_id
+                speakers.append(speaker_dict)
+
+            logger.info(f"Unified speakers: {len(direct_speakers)} discovered -> {len(speakers)} after deduplication")
 
             return {
                 'status': 'ok',
@@ -2260,6 +2295,8 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             }
         except Exception as e:
             logger.error(f"Failed to get unified speakers: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'status': 'ok',
                 'speakers': [],
