@@ -1,5 +1,5 @@
 name: SonoBleedingEdge
-version: "0.0.39"
+version: "0.0.40"
 slug: sonobleedingedge
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonobleedingedge

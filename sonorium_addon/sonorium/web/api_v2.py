@@ -1880,15 +1880,10 @@ def create_api_router(
                     logger.warning(f"Could not update manifest with category: {e}")
 
             # Remove from deleted_builtin_plugins if reinstalling a previously deleted builtin
-            # Check both plugin_id and target_name since they might differ
             deleted_list = plugin_manager.state_store.settings.deleted_builtin_plugins
-            removed_from_deleted = False
-            for name_to_check in [plugin_id, target_name]:
-                if name_to_check in deleted_list:
-                    deleted_list.remove(name_to_check)
-                    removed_from_deleted = True
-                    logger.info(f"Removed '{name_to_check}' from deleted builtins list")
-            if removed_from_deleted:
+            if plugin_id in deleted_list:
+                deleted_list.remove(plugin_id)
+                logger.info(f"Removed '{plugin_id}' from deleted builtins list")
                 plugin_manager.state_store.save()
 
             await plugin_manager.reload_plugins()

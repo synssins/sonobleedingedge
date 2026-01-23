@@ -105,6 +105,9 @@ class PluginManager:
         # Auto-install platform default plugins on first run
         await self._install_platform_defaults()
 
+        # Fix plugin categories from catalog (for plugins installed before category fix)
+        await self._fix_plugin_categories()
+
         self._initialized = True
         logger.info(f"Plugin manager initialized with {len(self.plugins)} plugin(s)")
 
@@ -319,6 +322,19 @@ class PluginManager:
                                 with zf.open(member) as src, open(target_path, 'wb') as dst:
                                     dst.write(src.read())
 
+                    # Update manifest.json with category from catalog
+                    manifest_path = target_dir / 'manifest.json'
+                    if manifest_path.exists() and plugin_info.get('category'):
+                        import json
+                        try:
+                            with open(manifest_path, 'r') as f:
+                                manifest = json.load(f)
+                            manifest['category'] = plugin_info['category']
+                            with open(manifest_path, 'w') as f:
+                                json.dump(manifest, f, indent=2)
+                        except Exception as e:
+                            logger.warning(f"Could not update manifest category for {plugin_id}: {e}")
+
                     # Load the newly installed plugin
                     await self._load_plugin(target_dir)
                     installed_count += 1
@@ -337,6 +353,64 @@ class PluginManager:
         settings.plugins_initialized = True
         if hasattr(self.config, 'save'):
             self.config.save()
+
+    async def _fix_plugin_categories(self) -> None:
+        """
+        Fix plugin categories by checking against the catalog.
+
+        This corrects plugins that were installed before category support
+        was properly implemented.
+        """
+        try:
+            import aiohttp
+            import json
+
+            # Fetch catalog
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+            async with aiohttp.ClientSession() as session:
+                async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        logger.debug("Could not fetch catalog for category fix")
+                        return
+                    catalog = await resp.json(content_type=None)
+
+            # Build category lookup from catalog
+            category_lookup = {p['id']: p.get('category') for p in catalog.get('plugins', [])}
+
+            fixed_count = 0
+            for plugin_id, plugin in self.plugins.items():
+                catalog_category = category_lookup.get(plugin_id)
+                if not catalog_category:
+                    continue
+
+                # Check if plugin has wrong or missing category
+                current_category = getattr(plugin, 'category', None)
+                if current_category == catalog_category:
+                    continue
+
+                # Update the plugin object
+                plugin.category = catalog_category
+
+                # Update the manifest file
+                plugin_dir = self.plugins_dir / plugin_id
+                manifest_path = plugin_dir / 'manifest.json'
+                if manifest_path.exists():
+                    try:
+                        with open(manifest_path, 'r') as f:
+                            manifest = json.load(f)
+                        manifest['category'] = catalog_category
+                        with open(manifest_path, 'w') as f:
+                            json.dump(manifest, f, indent=2)
+                        fixed_count += 1
+                        logger.debug(f"Fixed category for {plugin_id}: {current_category} -> {catalog_category}")
+                    except Exception as e:
+                        logger.warning(f"Could not update manifest for {plugin_id}: {e}")
+
+            if fixed_count > 0:
+                logger.info(f"Fixed categories for {fixed_count} plugin(s)")
+
+        except Exception as e:
+            logger.debug(f"Could not fix plugin categories: {e}")
 
     async def reload_plugins(self) -> None:
         """Reload all plugins."""
