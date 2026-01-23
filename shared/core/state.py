@@ -20,11 +20,11 @@ from sonorium.obs import logger
 def get_default_state_path() -> Path:
     """Get the default state file path based on platform."""
     try:
-        from sonorium.platform import get_path_provider
-        provider = get_path_provider()
-        return provider.get_state_file()
+        # Use the paths module which handles platform detection
+        from sonorium.paths import paths
+        return paths.state_file
     except ImportError:
-        # Fallback for standalone without platform module
+        # Fallback for standalone without paths module
         return Path.home() / ".sonorium" / "state.json"
 
 

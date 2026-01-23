@@ -769,6 +769,127 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             'mode': 'standalone'
         }
 
+    # --- Platform Capabilities ---
+    # This endpoint provides platform detection and feature availability
+    # Used by the frontend to adapt UI based on platform capabilities
+
+    @fastapi_app.get('/api/capabilities')
+    async def get_capabilities():
+        """
+        Get platform capabilities for UI adaptation.
+
+        Returns detected platform, available features, and connection status.
+        """
+        import os
+
+        # Detect platform
+        if os.environ.get("SUPERVISOR_TOKEN"):
+            platform = "ha_addon"
+        elif os.environ.get("SONORIUM_DOCKER") or os.path.exists("/.dockerenv"):
+            platform = "docker"
+        else:
+            platform = "standalone"
+
+        # HA integration status
+        ha_detected = os.environ.get("SUPERVISOR_TOKEN") is not None
+        ha_enabled = ha_detected  # Auto-enable when detected
+
+        # MQTT status - check config for manual settings
+        config = get_config()
+        mqtt_host = getattr(config, 'mqtt_host', None) or os.environ.get('SONORIUM_MQTT_HOST')
+        mqtt_enabled = mqtt_host is not None and mqtt_host not in ('', 'auto')
+        mqtt_detected = ha_detected  # MQTT auto-detected via HA
+
+        # Local audio detection
+        local_audio_available = False
+        local_audio_devices = []
+        try:
+            import sounddevice as sd
+            devices = sd.query_devices()
+            output_devices = [d for i, d in enumerate(devices) if d['max_output_channels'] > 0]
+            local_audio_available = len(output_devices) > 0
+            local_audio_devices = [
+                {
+                    'id': str(i),
+                    'name': d['name'],
+                    'channels': d['max_output_channels'],
+                    'is_default': i == (sd.default.device[1] if sd.default.device else -1),
+                    'enabled': False
+                }
+                for i, d in enumerate(devices) if d['max_output_channels'] > 0
+            ][:10]  # Limit to 10 devices
+        except Exception as e:
+            logger.debug(f"Could not detect audio devices: {e}")
+
+        return {
+            'platform': platform,
+            'features': {
+                'ha_integration': {
+                    'detected': ha_detected,
+                    'enabled': ha_enabled,
+                    'autodetect': True,
+                    'override': False,
+                    'connected': ha_enabled,
+                    'has_token': ha_detected,
+                    'supervisor_url': 'http://supervisor/core' if ha_detected else None,
+                    'last_error': None,
+                    'can_override': not ha_detected  # Can configure manually on standalone
+                },
+                'mqtt': {
+                    'detected': mqtt_detected,
+                    'enabled': mqtt_enabled,
+                    'autodetect': True,
+                    'override': False,
+                    'broker': mqtt_host,
+                    'port': getattr(config, 'mqtt_port', 1883) or 1883,
+                    'has_credentials': bool(getattr(config, 'mqtt_username', None)),
+                    'discovery_prefix': 'homeassistant',
+                    'connected': mqtt_enabled,
+                    'last_error': None,
+                    'can_override': True  # Always allow MQTT configuration
+                },
+                'local_audio': {
+                    'available': local_audio_available,
+                    'enabled': local_audio_available,
+                    'device_count': len(local_audio_devices),
+                    'devices': local_audio_devices,
+                    'reason': None if local_audio_available else 'No audio output devices detected'
+                },
+                'direct_discovery': True,  # mDNS/SSDP always available
+                'hybrid_discovery': ha_enabled  # Requires HA
+            }
+        }
+
+    @fastapi_app.get('/api/settings/integration')
+    async def get_integration_settings():
+        """Get integration settings (HA/MQTT configuration)."""
+        config = get_config()
+        return {
+            'mqtt_host': getattr(config, 'mqtt_host', None),
+            'mqtt_port': getattr(config, 'mqtt_port', 1883),
+            'mqtt_username': getattr(config, 'mqtt_username', None),
+            # Password not returned for security
+        }
+
+    @fastapi_app.put('/api/settings/integration')
+    async def update_integration_settings(request: Request):
+        """Update integration settings (MQTT configuration)."""
+        body = await request.json()
+        config = get_config()
+
+        # Update MQTT settings
+        if 'mqtt_host' in body:
+            config.mqtt_host = body['mqtt_host']
+        if 'mqtt_port' in body:
+            config.mqtt_port = body['mqtt_port']
+        if 'mqtt_username' in body:
+            config.mqtt_username = body['mqtt_username']
+        if 'mqtt_password' in body and body['mqtt_password']:
+            config.mqtt_password = body['mqtt_password']
+
+        save_config()
+        return {'status': 'ok'}
+
     # --- Heartbeat (browser connection tracking) ---
 
     @fastapi_app.post('/api/heartbeat')
@@ -2391,13 +2512,23 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             # Disable a network speaker
             speaker_id = entity_id.replace('network_speaker.', '')
             enabled = set(_app_instance.get_enabled_network_speakers())
+
+            # If enabled list is empty (meaning "all enabled" by default),
+            # initialize with all discovered speakers first
+            if not enabled:
+                from sonorium.network_speakers import get_discovered_speakers
+                discovered = get_discovered_speakers()
+                enabled = set(sp['id'] for sp in discovered)
+                logger.info(f"Initializing enabled speakers with {len(enabled)} discovered speakers")
+
+            # Now remove the disabled speaker
             if speaker_id in enabled:
                 enabled.remove(speaker_id)
-                _app_instance.set_enabled_network_speakers(list(enabled))
-                # Persist to config
-                config = get_config()
-                config.enabled_network_speakers = list(enabled)
-                save_config()
+            _app_instance.set_enabled_network_speakers(list(enabled))
+            # Persist to config
+            config = get_config()
+            config.enabled_network_speakers = list(enabled)
+            save_config()
         # For audio_device, no-op - can't disable the only output
         return {'status': 'ok'}
 

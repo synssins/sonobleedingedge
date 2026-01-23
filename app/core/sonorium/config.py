@@ -202,6 +202,12 @@ class AppConfig:
     output_gain: float = 6.0  # Output gain multiplier for network streams (0.0 - 10.0)
     max_channels: int = 4     # Maximum number of concurrent streaming channels
 
+    # MQTT/HA Integration settings (for manual configuration on standalone)
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
+
     # Extra settings from launcher or other sources (preserved on save)
     _extra_settings: dict = field(default_factory=dict, repr=False)
 

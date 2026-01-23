@@ -3747,6 +3747,12 @@ function renderDirectOnlySpeaker(speaker) {
     const protocol = speaker.protocol || (speaker.found_by && speaker.found_by[0]) || 'unknown';
     const model = speaker.model || '';
 
+    // Generate entity_id for network speaker if not present
+    const entityId = speaker.entity_id || `network_speaker.${speaker.id}`;
+
+    // Check if this speaker is enabled
+    const isEnabled = speaker.enabled || (enabledSpeakers || []).includes(entityId);
+
     // Found by badges
     let foundByBadges = '';
     if (speaker.found_by && speaker.found_by.length > 0) {
@@ -3756,8 +3762,13 @@ function renderDirectOnlySpeaker(speaker) {
     }
 
     return `
-        <div class="settings-speaker direct-only">
-            <div class="direct-only-indicator" title="Not in Home Assistant">
+        <div class="settings-speaker direct-only ${isEnabled ? '' : 'disabled'}">
+            <label class="toggle-switch">
+                <input type="checkbox" ${isEnabled ? 'checked' : ''}
+                       onchange="toggleSpeakerEnabled('${entityId}', this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
+            <div class="direct-only-indicator" title="Network discovered (not in Home Assistant)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"/>
                     <line x1="2" y1="12" x2="22" y2="12"/>
