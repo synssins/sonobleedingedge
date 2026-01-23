@@ -1707,11 +1707,12 @@ def create_api_router(
 
     # --- Plugin Endpoints ---
 
-    @router.get("/plugins", response_model=list[PluginResponse])
+    @router.get("/plugins")
     async def list_plugins():
         """List all available plugins."""
         if not plugin_manager:
             return []
+        # Return raw dicts to avoid Pydantic validation issues with dynamic plugin fields
         return plugin_manager.list_plugins()
 
     @router.get("/plugins/directories")
@@ -2025,7 +2026,7 @@ def create_api_router(
 
     # --- Individual Plugin Routes ---
 
-    @router.get("/plugins/{plugin_id}", response_model=PluginResponse)
+    @router.get("/plugins/{plugin_id}")
     async def get_plugin(plugin_id: str):
         """Get details for a specific plugin."""
         if not plugin_manager:
