@@ -25,3 +25,6 @@ pyatv>=0.14.0
 
 # Sonos support
 soco>=0.30.0
+
+# Chromecast support
+pychromecast>=13.0.0
