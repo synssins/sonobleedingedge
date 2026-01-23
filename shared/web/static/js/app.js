@@ -527,6 +527,11 @@ function showView(viewName) {
     // Persist view selection across page refreshes
     localStorage.setItem('sonorium_currentView', viewName);
 
+    // Close sidebar on mobile when navigating
+    if (window.innerWidth <= 768) {
+        closeSidebar();
+    }
+
     // Update nav items - clear all active states
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
@@ -676,7 +681,14 @@ function toggleNavSection(sectionId) {
 }
 
 function toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('open');
+    const sidebar = document.getElementById('sidebar');
+    const isOpen = sidebar.classList.toggle('open');
+    document.body.classList.toggle('sidebar-open', isOpen);
+}
+
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.body.classList.remove('sidebar-open');
 }
 
 function toggleCollapsibleSection(sectionId) {
@@ -1222,7 +1234,18 @@ async function saveSession() {
     }
 }
 
-// Theme Selector
+// Theme Selector Dropdown
+function toggleThemeDropdown(event) {
+    event.stopPropagation();
+    const dropdown = document.getElementById('theme-dropdown');
+    dropdown.classList.toggle('open');
+}
+
+function closeThemeDropdown() {
+    const dropdown = document.getElementById('theme-dropdown');
+    if (dropdown) dropdown.classList.remove('open');
+}
+
 function renderThemeSelector() {
     const container = document.getElementById('theme-selector');
     container.innerHTML = themes.map(theme => `
@@ -1232,11 +1255,35 @@ function renderThemeSelector() {
             <div class="theme-name">${escapeHtml(theme.name)}</div>
         </div>
     `).join('');
+
+    // Update dropdown header to show selected theme
+    updateThemeDropdownHeader();
+}
+
+function updateThemeDropdownHeader() {
+    const iconEl = document.querySelector('#theme-dropdown-selected .theme-dropdown-icon');
+    const textEl = document.querySelector('#theme-dropdown-selected .theme-dropdown-text');
+
+    if (!iconEl || !textEl) return;
+
+    if (selectedTheme) {
+        const theme = themes.find(t => t.id === selectedTheme);
+        if (theme) {
+            iconEl.textContent = resolveThemeIcon(theme.icon, theme.id);
+            textEl.textContent = theme.name;
+            textEl.classList.add('selected');
+        }
+    } else {
+        iconEl.textContent = '🎵';
+        textEl.textContent = 'Click to select a theme...';
+        textEl.classList.remove('selected');
+    }
 }
 
 function selectTheme(themeId) {
     selectedTheme = themeId;
     renderThemeSelector();
+    closeThemeDropdown();
     loadChannelPresets(themeId);
 }
 
@@ -1544,11 +1591,28 @@ function updateSpeakerDropdownText() {
     }
 }
 
-// Close dropdown when clicking outside
+// Close dropdowns when clicking outside
 document.addEventListener('click', function(event) {
-    const dropdown = document.getElementById('speaker-dropdown');
-    if (dropdown && !dropdown.contains(event.target)) {
-        dropdown.classList.remove('open');
+    // Close speaker dropdown
+    const speakerDropdown = document.getElementById('speaker-dropdown');
+    if (speakerDropdown && !speakerDropdown.contains(event.target)) {
+        speakerDropdown.classList.remove('open');
+    }
+
+    // Close theme dropdown
+    const themeDropdown = document.getElementById('theme-dropdown');
+    if (themeDropdown && !themeDropdown.contains(event.target)) {
+        themeDropdown.classList.remove('open');
+    }
+
+    // Close sidebar on mobile when clicking overlay or outside
+    const sidebar = document.getElementById('sidebar');
+    const mobileMenuBtn = document.querySelector('.mobile-menu-btn');
+    if (sidebar && sidebar.classList.contains('open')) {
+        // Close if clicking outside sidebar and not on the menu button
+        if (!sidebar.contains(event.target) && !mobileMenuBtn?.contains(event.target)) {
+            closeSidebar();
+        }
     }
 });
 

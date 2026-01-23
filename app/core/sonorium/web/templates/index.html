@@ -928,8 +928,19 @@ Example:
 
                 <div class="session-field">
                     <label>Select Theme</label>
-                    <div id="theme-selector" class="theme-grid">
-                        <!-- Themes loaded dynamically -->
+                    <div class="theme-dropdown" id="theme-dropdown">
+                        <div class="theme-dropdown-header" onclick="toggleThemeDropdown(event)">
+                            <div class="theme-dropdown-selected" id="theme-dropdown-selected">
+                                <span class="theme-dropdown-icon">🎵</span>
+                                <span class="theme-dropdown-text">Click to select a theme...</span>
+                            </div>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6,9 12,15 18,9"/>
+                            </svg>
+                        </div>
+                        <div class="theme-dropdown-content" id="theme-selector">
+                            <!-- Themes loaded dynamically -->
+                        </div>
                     </div>
                 </div>
 

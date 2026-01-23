@@ -660,6 +660,109 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Theme Dropdown (Channel Editor) */
+.theme-dropdown {
+    position: relative;
+}
+
+.theme-dropdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.theme-dropdown-header:hover {
+    border-color: var(--accent-secondary);
+}
+
+.theme-dropdown.open .theme-dropdown-header {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-color: var(--accent-primary);
+}
+
+.theme-dropdown.open .theme-dropdown-header svg {
+    transform: rotate(180deg);
+}
+
+.theme-dropdown-header svg {
+    transition: transform 0.2s;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.theme-dropdown-selected {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    overflow: hidden;
+}
+
+.theme-dropdown-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.theme-dropdown-text {
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-muted);
+}
+
+.theme-dropdown-text.selected {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.theme-dropdown-content {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    border: 1px solid var(--accent-primary);
+    border-top: none;
+    border-radius: 0 0 0.5rem 0.5rem;
+    background: var(--bg-secondary);
+    max-height: 250px;
+    overflow-y: auto;
+    z-index: 50;
+}
+
+.theme-dropdown.open .theme-dropdown-content {
+    display: block;
+}
+
+/* Theme options inside dropdown */
+.theme-dropdown-content .theme-card {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    margin: 0;
+}
+
+.theme-dropdown-content .theme-card:last-child {
+    border-bottom: none;
+    border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.theme-dropdown-content .theme-card:hover {
+    background: var(--bg-tertiary);
+}
+
+.theme-dropdown-content .theme-card.selected {
+    background: rgba(6, 214, 160, 0.15);
+    border-left: 3px solid var(--accent-primary);
+}
+
 /* Enhanced Themes Browser */
 .themes-browser-enhanced {
     display: flex;
