@@ -235,22 +235,25 @@ class HybridSpeakerManager:
             self._log.warning(LogCategory.DISCOVERY, "No speaker plugins available for network scan")
             return results_data
 
-        self._log.info(
-            LogCategory.DISCOVERY,
-            f"Scanning network with {len(plugins)} plugin(s)",
-            {"plugins": [p.id for p in plugins]}
-        )
+        # Log which plugins will run discovery
+        plugin_ids = [p.id for p in plugins]
+        logger.info(f"[DISCOVERY] Running network scan with plugins: {plugin_ids}")
 
         tasks = [plugin.refresh_speakers() for plugin in plugins]
         scan_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for plugin, result in zip(plugins, scan_results):
             if isinstance(result, Exception):
+                logger.error(f"[DISCOVERY] {plugin.name} ({plugin.id}) FAILED: {result}")
                 self._log.error(
                     LogCategory.DISCOVERY,
                     f"Network scan failed for {plugin.name}: {result}"
                 )
                 continue
+
+            # Log result count for each plugin
+            result_count = len(result) if result else 0
+            logger.info(f"[DISCOVERY] {plugin.name} ({plugin.id}) found {result_count} speaker(s)")
 
             protocol_map = {
                 "sonos": DiscoverySource.SONOS,
