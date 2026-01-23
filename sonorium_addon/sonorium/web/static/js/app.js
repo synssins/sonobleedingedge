@@ -4070,11 +4070,22 @@ function renderDirectOnlySpeaker(speaker) {
     const ip = speaker.ip_address || '';
     const model = speaker.model || '';
 
-    // Use enabled status from API (already calculated with original_ids)
-    const isEnabled = speaker.enabled !== false;  // Default true if not specified
-
     // Get original IDs for this unified speaker (used for enable/disable)
     const originalIds = speaker.original_ids || [];
+
+    // Check enabled status against enabledSpeakers list
+    // - ["__none__"] = all disabled
+    // - [] = all enabled (backwards compat)
+    // - [ids...] = only those IDs enabled
+    let isEnabled;
+    if (enabledSpeakers && enabledSpeakers.length === 1 && enabledSpeakers[0] === '__none__') {
+        isEnabled = false;  // Sentinel value means all disabled
+    } else if (!enabledSpeakers || enabledSpeakers.length === 0) {
+        isEnabled = true;  // Empty = all enabled
+    } else {
+        // Check if any original_id is in enabledSpeakers
+        isEnabled = originalIds.some(id => enabledSpeakers.includes(id));
+    }
     const originalIdsJson = JSON.stringify(originalIds).replace(/"/g, '&quot;');
 
     // Found by badges
