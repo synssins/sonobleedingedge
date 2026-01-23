@@ -26,7 +26,6 @@ try:
 except ImportError as e:
     PYCHROMECAST_AVAILABLE = False
     pychromecast = None
-    # Log will happen when plugin loads
     _PYCHROMECAST_IMPORT_ERROR = str(e)
 except Exception as e:
     PYCHROMECAST_AVAILABLE = False
@@ -52,7 +51,7 @@ class ChromecastPlugin(SpeakerPlugin):
 
     id = "chromecast"
     name = "Chromecast"
-    version = "1.0.0"
+    version = "1.0.1"
     description = "Stream audio to Chromecast and Google Cast devices"
     author = "Sonorium"
     builtin = True

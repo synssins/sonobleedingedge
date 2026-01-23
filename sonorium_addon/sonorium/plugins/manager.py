@@ -246,8 +246,8 @@ class PluginManager:
                         return
                     catalog = await resp.json(content_type=None)
 
-            # Get platform defaults (default to ha_addon)
-            platform = "ha_addon"  # TODO: detect platform properly
+            # Detect platform
+            platform = self._detect_platform()
             platform_defaults = catalog.get('platform_defaults', {})
             default_plugins = platform_defaults.get(platform, [])
 
@@ -354,6 +354,27 @@ class PluginManager:
         if hasattr(self.config, 'save'):
             self.config.save()
 
+    def _detect_platform(self) -> str:
+        """Detect the current platform for default plugin selection."""
+        import os
+        import sys
+
+        # Check for Home Assistant addon environment
+        if os.environ.get('SUPERVISOR_TOKEN') or os.path.exists('/data/options.json'):
+            return 'ha_addon'
+
+        # Check for Docker
+        if os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER'):
+            return 'docker'
+
+        # Check OS
+        if sys.platform == 'win32':
+            return 'windows'
+        elif sys.platform == 'darwin':
+            return 'macos'
+        else:
+            return 'linux'
+
     async def _fix_plugin_categories(self) -> None:
         """
         Fix plugin categories by checking against the catalog.
@@ -385,16 +406,15 @@ class PluginManager:
                     logger.debug(f"Plugin {plugin_id} not in catalog, skipping category fix")
                     continue
 
-                # Get current category value (use repr to see exact value)
+                # Get current category value
                 current_category = getattr(plugin, 'category', None)
                 logger.debug(f"Plugin {plugin_id}: current_category={repr(current_category)}, catalog_category={repr(catalog_category)}")
 
                 # ALWAYS set category from catalog to ensure consistency
-                # This fixes issues where category might be set but not persisted correctly
                 plugin.category = catalog_category
                 logger.info(f"Set category for {plugin_id}: {repr(catalog_category)}")
 
-                # Update the manifest file (use plugin's actual directory)
+                # Update the manifest file
                 manifest_path = plugin.plugin_dir / 'manifest.json'
                 logger.debug(f"Looking for manifest at: {manifest_path}")
                 if manifest_path.exists():

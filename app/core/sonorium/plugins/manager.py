@@ -102,6 +102,12 @@ class PluginManager:
                 logger.debug(f"Auto-enabling speaker plugin: {plugin_id}")
                 await self.enable_plugin(plugin_id)
 
+        # Auto-install platform default plugins on first run
+        await self._install_platform_defaults()
+
+        # Fix plugin categories from catalog (for plugins installed before category fix)
+        await self._fix_plugin_categories()
+
         self._initialized = True
         logger.info(f"Plugin manager initialized with {len(self.plugins)} plugin(s)")
 
@@ -200,6 +206,241 @@ class PluginManager:
             except Exception:
                 pass
             return None
+
+    async def _install_platform_defaults(self) -> None:
+        """
+        Install platform default plugins on first run.
+
+        Checks the plugins_initialized flag in state/config.
+        If False, fetches the catalog and installs default plugins for the platform.
+        """
+        # Check if already initialized
+        if hasattr(self.config, 'settings'):
+            # StateStore (HA addon)
+            settings = self.config.settings
+        elif hasattr(self.config, 'plugins_initialized'):
+            # Direct config object
+            settings = self.config
+        else:
+            logger.debug("Cannot determine plugins_initialized state, skipping auto-install")
+            return
+
+        if getattr(settings, 'plugins_initialized', False):
+            logger.debug("Plugins already initialized, skipping auto-install")
+            return
+
+        logger.info("First run detected, installing platform default plugins...")
+
+        try:
+            import aiohttp
+            import zipfile
+            import io
+            import shutil
+
+            # Fetch catalog
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+            async with aiohttp.ClientSession() as session:
+                async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"Failed to fetch plugin catalog: HTTP {resp.status}")
+                        return
+                    catalog = await resp.json(content_type=None)
+
+            # Detect platform
+            platform = self._detect_platform()
+            platform_defaults = catalog.get('platform_defaults', {})
+            default_plugins = platform_defaults.get(platform, [])
+
+            if not default_plugins:
+                logger.info(f"No default plugins defined for platform: {platform}")
+                settings.plugins_initialized = True
+                if hasattr(self.config, 'save'):
+                    self.config.save()
+                return
+
+            logger.info(f"Installing {len(default_plugins)} default plugins for {platform}: {default_plugins}")
+
+            # Build plugin info lookup
+            plugin_lookup = {p['id']: p for p in catalog.get('plugins', [])}
+
+            installed_count = 0
+            for plugin_id in default_plugins:
+                # Skip if already installed
+                if plugin_id in self.plugins:
+                    logger.debug(f"Plugin {plugin_id} already installed, skipping")
+                    continue
+
+                plugin_info = plugin_lookup.get(plugin_id)
+                if not plugin_info:
+                    logger.warning(f"Plugin {plugin_id} not found in catalog, skipping")
+                    continue
+
+                zip_filename = plugin_info.get('zip_file')
+                if not zip_filename:
+                    logger.warning(f"Plugin {plugin_id} has no zip_file, skipping")
+                    continue
+
+                # Download and install
+                zip_url = f'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/{zip_filename}'
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                            if resp.status != 200:
+                                logger.warning(f"Failed to download {plugin_id}: HTTP {resp.status}")
+                                continue
+                            content = await resp.read()
+
+                    # Extract to plugins directory
+                    zip_buffer = io.BytesIO(content)
+                    with zipfile.ZipFile(zip_buffer, 'r') as zf:
+                        file_list = zf.namelist()
+                        plugin_py_paths = [f for f in file_list if f.endswith('plugin.py')]
+                        if not plugin_py_paths:
+                            logger.warning(f"No plugin.py found in {plugin_id} ZIP")
+                            continue
+
+                        plugin_py = plugin_py_paths[0]
+                        plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
+                        target_dir = self.plugins_dir / plugin_id
+
+                        if target_dir.exists():
+                            shutil.rmtree(target_dir)
+
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        for member in zf.namelist():
+                            if plugin_dir_name and member.startswith(plugin_dir_name + '/'):
+                                target_path = target_dir / member[len(plugin_dir_name) + 1:]
+                            elif plugin_dir_name and member == plugin_dir_name:
+                                continue
+                            else:
+                                target_path = target_dir / member
+
+                            if member.endswith('/'):
+                                target_path.mkdir(parents=True, exist_ok=True)
+                            else:
+                                target_path.parent.mkdir(parents=True, exist_ok=True)
+                                with zf.open(member) as src, open(target_path, 'wb') as dst:
+                                    dst.write(src.read())
+
+                    # Update manifest.json with category from catalog
+                    manifest_path = target_dir / 'manifest.json'
+                    if manifest_path.exists() and plugin_info.get('category'):
+                        import json
+                        try:
+                            with open(manifest_path, 'r') as f:
+                                manifest = json.load(f)
+                            manifest['category'] = plugin_info['category']
+                            with open(manifest_path, 'w') as f:
+                                json.dump(manifest, f, indent=2)
+                        except Exception as e:
+                            logger.warning(f"Could not update manifest category for {plugin_id}: {e}")
+
+                    # Load the newly installed plugin
+                    await self._load_plugin(target_dir)
+                    installed_count += 1
+                    logger.info(f"Installed default plugin: {plugin_id}")
+
+                except Exception as e:
+                    logger.error(f"Failed to install default plugin {plugin_id}: {e}")
+                    continue
+
+            logger.info(f"Installed {installed_count} default plugins")
+
+        except Exception as e:
+            logger.error(f"Failed to install platform defaults: {e}")
+
+        # Mark as initialized regardless of success (don't retry on every startup)
+        settings.plugins_initialized = True
+        if hasattr(self.config, 'save'):
+            self.config.save()
+
+    def _detect_platform(self) -> str:
+        """Detect the current platform for default plugin selection."""
+        import os
+        import sys
+
+        # Check for Home Assistant addon environment
+        if os.environ.get('SUPERVISOR_TOKEN') or os.path.exists('/data/options.json'):
+            return 'ha_addon'
+
+        # Check for Docker
+        if os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER'):
+            return 'docker'
+
+        # Check OS
+        if sys.platform == 'win32':
+            return 'windows'
+        elif sys.platform == 'darwin':
+            return 'macos'
+        else:
+            return 'linux'
+
+    async def _fix_plugin_categories(self) -> None:
+        """
+        Fix plugin categories by checking against the catalog.
+
+        This ensures all plugins have the correct category from the catalog,
+        and updates both the in-memory object and the manifest file.
+        """
+        try:
+            import aiohttp
+            import json
+
+            # Fetch catalog
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+            async with aiohttp.ClientSession() as session:
+                async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        logger.debug("Could not fetch catalog for category fix")
+                        return
+                    catalog = await resp.json(content_type=None)
+
+            # Build category lookup from catalog
+            category_lookup = {p['id']: p.get('category') for p in catalog.get('plugins', [])}
+            logger.debug(f"Category lookup from catalog: {category_lookup}")
+
+            fixed_count = 0
+            for plugin_id, plugin in self.plugins.items():
+                catalog_category = category_lookup.get(plugin_id)
+                if not catalog_category:
+                    logger.debug(f"Plugin {plugin_id} not in catalog, skipping category fix")
+                    continue
+
+                # Get current category value
+                current_category = getattr(plugin, 'category', None)
+                logger.debug(f"Plugin {plugin_id}: current_category={repr(current_category)}, catalog_category={repr(catalog_category)}")
+
+                # ALWAYS set category from catalog to ensure consistency
+                plugin.category = catalog_category
+                logger.info(f"Set category for {plugin_id}: {repr(catalog_category)}")
+
+                # Update the manifest file
+                manifest_path = plugin.plugin_dir / 'manifest.json'
+                logger.debug(f"Looking for manifest at: {manifest_path}")
+                if manifest_path.exists():
+                    try:
+                        with open(manifest_path, 'r') as f:
+                            manifest = json.load(f)
+
+                        # Check if manifest needs updating
+                        if manifest.get('category') != catalog_category:
+                            manifest['category'] = catalog_category
+                            with open(manifest_path, 'w') as f:
+                                json.dump(manifest, f, indent=2)
+                            fixed_count += 1
+                            logger.info(f"Updated manifest category for {plugin_id}")
+                        else:
+                            logger.debug(f"Manifest for {plugin_id} already has correct category")
+                    except Exception as e:
+                        logger.warning(f"Could not update manifest for {plugin_id}: {e}")
+                else:
+                    logger.warning(f"Manifest not found at {manifest_path}")
+                    fixed_count += 1  # Still count as fixed (in-memory)
+
+            logger.info(f"Category sync complete: {len(self.plugins)} plugins, {fixed_count} manifests updated")
+
+        except Exception as e:
+            logger.warning(f"Could not fix plugin categories: {e}")
 
     async def reload_plugins(self) -> None:
         """Reload all plugins."""
