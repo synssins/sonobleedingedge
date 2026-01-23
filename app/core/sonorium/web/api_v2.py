@@ -332,9 +332,46 @@ def create_api_router(
         Configured APIRouter
     """
     router = APIRouter(prefix="/api", tags=["api"])
-    
+
+    # --- Capabilities Endpoint ---
+
+    @router.get("/capabilities")
+    async def get_capabilities() -> dict:
+        """Get platform capabilities for conditional UI rendering."""
+        # Check if local audio is available
+        local_audio_available = False
+        local_audio_devices = []
+        try:
+            import sounddevice as sd
+            devices = sd.query_devices()
+            output_devices = [d for d in devices if d['max_output_channels'] > 0]
+            local_audio_available = len(output_devices) > 0
+            local_audio_devices = [d['name'] for d in output_devices[:5]]
+        except Exception:
+            pass
+
+        return {
+            "platform": "ha_addon",
+            "features": {
+                "ha_integration": {
+                    "enabled": True,  # HA addon always has HA integration
+                    "detected": True,
+                    "can_override": False,
+                },
+                "mqtt": {
+                    "enabled": True,  # HA addon always has MQTT
+                    "detected": True,
+                    "can_override": False,
+                },
+                "local_audio": {
+                    "available": local_audio_available,
+                    "devices": local_audio_devices,
+                },
+            },
+        }
+
     # --- Debug Endpoint ---
-    
+
     @router.get("/debug/speakers")
     async def debug_speakers() -> dict:
         """Debug endpoint to show raw speaker discovery data."""
