@@ -3498,6 +3498,112 @@ body.sidebar-open .sidebar-overlay {
         flex: 1;
         min-width: 100px;
     }
+
+    /* Channels page - compact + button on mobile */
+    .header-actions .btn-primary .btn-text {
+        display: none;
+    }
+
+    .header-actions .btn-primary {
+        flex: 0;
+        min-width: auto;
+        padding: 0.5rem 0.75rem;
+    }
+
+    /* Settings speaker info - stack on mobile */
+    .settings-speaker-info {
+        flex-wrap: wrap;
+        row-gap: 0.25rem;
+    }
+
+    .settings-speaker-info > span:first-of-type {
+        max-width: 100%;
+        width: 100%;
+        flex-basis: 100%;
+    }
+
+    .speaker-ip {
+        margin-left: 0;
+        order: 2;
+    }
+
+    .speaker-model {
+        order: 3;
+    }
+
+    .speaker-found-by {
+        margin-left: 0;
+        order: 4;
+        flex-basis: 100%;
+        margin-top: 0.25rem;
+    }
+
+    /* Theme browser - single column on mobile */
+    .theme-category-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .theme-browser-card {
+        min-height: auto;
+        max-height: none;
+    }
+
+    /* HA/MQTT settings - stack labels on mobile */
+    .setting-item {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .setting-item > label {
+        min-width: auto;
+        width: 100%;
+    }
+
+    .setting-value input[type="text"],
+    .setting-value input[type="password"],
+    .setting-value input[type="number"] {
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .manual-fields .setting-item {
+        margin-left: 0.5rem;
+        padding-left: 0.75rem;
+    }
+
+    /* Settings group header - stack on mobile */
+    .settings-group-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .settings-group-header .status-inline {
+        margin-left: 0;
+    }
+
+    /* Speaker list item - more compact */
+    .speaker-list-item {
+        padding: 0.5rem 0.75rem;
+    }
+
+    /* Settings actions - wrap buttons nicely on mobile */
+    .settings-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+    }
+
+    .settings-actions .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.5rem 0.5rem;
+        white-space: nowrap;
+    }
+
+    /* Hide long button text, show only on wider buttons */
+    .settings-actions .btn-sm svg {
+        flex-shrink: 0;
+    }
 }
 
 @media (min-width: 769px) {
