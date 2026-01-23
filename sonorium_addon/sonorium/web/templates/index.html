@@ -15,6 +15,13 @@
             link.rel = 'stylesheet';
             link.href = window.SONORIUM_BASE + '/static/css/styles.css';
             document.head.appendChild(link);
+
+            // Dynamically load favicon with correct path
+            var favicon = document.createElement('link');
+            favicon.rel = 'icon';
+            favicon.type = 'image/png';
+            favicon.href = window.SONORIUM_BASE + '/static/favicon.png';
+            document.head.appendChild(favicon);
         })();
     </script>
 </head>
