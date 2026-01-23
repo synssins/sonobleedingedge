@@ -21,10 +21,10 @@
       "id": "chromecast",
       "name": "Chromecast Speaker",
       "description": "Stream audio to Chromecast and Google Cast devices",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Sonorium",
       "category": "speakers",
-      "zip_file": "chromecast_v1.0.0.zip",
+      "zip_file": "chromecast_v1.0.1.zip",
       "dependencies": ["pychromecast>=13.0.0"]
     },
     {

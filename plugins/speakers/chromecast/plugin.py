@@ -23,9 +23,16 @@ try:
     import pychromecast
     from pychromecast.controllers.media import MediaController
     PYCHROMECAST_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PYCHROMECAST_AVAILABLE = False
     pychromecast = None
+    _PYCHROMECAST_IMPORT_ERROR = str(e)
+except Exception as e:
+    PYCHROMECAST_AVAILABLE = False
+    pychromecast = None
+    _PYCHROMECAST_IMPORT_ERROR = str(e)
+else:
+    _PYCHROMECAST_IMPORT_ERROR = None
 
 
 class ChromecastPlugin(SpeakerPlugin):
@@ -44,7 +51,7 @@ class ChromecastPlugin(SpeakerPlugin):
 
     id = "chromecast"
     name = "Chromecast"
-    version = "1.0.0"
+    version = "1.0.1"
     description = "Stream audio to Chromecast and Google Cast devices"
     author = "Sonorium"
     builtin = True
@@ -65,10 +72,13 @@ class ChromecastPlugin(SpeakerPlugin):
     async def on_load(self) -> None:
         """Check for pychromecast availability."""
         if not PYCHROMECAST_AVAILABLE:
-            logger.warning(
-                f"{self.name}: pychromecast not installed. "
-                "Install with: pip install pychromecast"
+            error_msg = _PYCHROMECAST_IMPORT_ERROR or "unknown error"
+            logger.error(
+                f"{self.name}: pychromecast import FAILED: {error_msg}. "
+                "Chromecast discovery will be disabled."
             )
+        else:
+            logger.info(f"{self.name}: pychromecast loaded successfully")
 
     async def on_unload(self) -> None:
         """Clean up Cast connections."""
@@ -103,6 +113,7 @@ class ChromecastPlugin(SpeakerPlugin):
     async def discover_speakers(self) -> list[NetworkSpeaker]:
         """Discover Chromecast devices on the network."""
         if not PYCHROMECAST_AVAILABLE:
+            logger.warning(f"{self.name}: Skipping discovery - pychromecast not available")
             return []
 
         async with self._discovery_lock:
@@ -123,13 +134,25 @@ class ChromecastPlugin(SpeakerPlugin):
         speakers = []
 
         try:
+            logger.info(f"{self.name}: Starting mDNS/Zeroconf discovery (timeout=5s)...")
+
             # Get Chromecast devices (short timeout for responsiveness)
             chromecasts, browser = pychromecast.get_chromecasts(timeout=5)
+
+            logger.info(f"{self.name}: Discovery returned {len(chromecasts)} device(s)")
 
             for cc in chromecasts:
                 try:
                     # Get device info
                     device = cc.cast_info
+
+                    # Log all device info for debugging
+                    logger.info(
+                        f"{self.name}: Found device: name='{device.friendly_name}', "
+                        f"host='{device.host}', port={device.port}, "
+                        f"model='{device.model_name}', uuid={device.uuid}, "
+                        f"cast_type='{device.cast_type}'"
+                    )
 
                     speaker = NetworkSpeaker(
                         id=str(device.uuid),  # Convert UUID object to string
@@ -146,18 +169,20 @@ class ChromecastPlugin(SpeakerPlugin):
                         }
                     )
                     speakers.append(speaker)
+                    logger.info(f"{self.name}: Added speaker '{speaker.name}' with IP {speaker.ip_address}")
 
                     # Store cast object for later use
                     self._casts[str(device.uuid)] = cc
 
                 except Exception as e:
-                    logger.debug(f"Error processing Chromecast: {e}")
+                    logger.warning(f"{self.name}: Error processing device: {e}")
 
             # Stop browser after discovery
             browser.stop_discovery()
+            logger.info(f"{self.name}: Discovery complete, found {len(speakers)} speaker(s)")
 
         except Exception as e:
-            logger.error(f"Chromecast discovery failed: {e}")
+            logger.error(f"{self.name}: Discovery failed: {e}", exc_info=True)
 
         return speakers
 

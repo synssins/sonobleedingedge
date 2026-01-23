@@ -1,7 +1,7 @@
 {
     "id": "chromecast",
     "name": "Chromecast Speaker",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Stream audio to Chromecast and Google Cast devices",
     "author": "Sonorium",
     "plugin_type": "speaker",
