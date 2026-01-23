@@ -115,6 +115,19 @@ class ThemeDefinition:
         """Apply track settings from metadata to instances."""
         track_settings = self._metadata.get('tracks', {})
 
+        # Handle legacy format where tracks might be a list instead of dict
+        if isinstance(track_settings, list):
+            # Convert list to dict keyed by track name if possible
+            converted = {}
+            for item in track_settings:
+                if isinstance(item, dict) and 'name' in item:
+                    converted[item['name']] = item
+            track_settings = converted
+
+        # Ensure we have a dict
+        if not isinstance(track_settings, dict):
+            track_settings = {}
+
         for instance in self.instances:
             # Try both with and without file extension
             settings = track_settings.get(instance.name) or track_settings.get(f'{instance.name}.mp3', {})
