@@ -123,13 +123,25 @@ class ChromecastPlugin(SpeakerPlugin):
         speakers = []
 
         try:
+            logger.info(f"{self.name}: Starting mDNS/Zeroconf discovery (timeout=5s)...")
+
             # Get Chromecast devices (short timeout for responsiveness)
             chromecasts, browser = pychromecast.get_chromecasts(timeout=5)
+
+            logger.info(f"{self.name}: Discovery returned {len(chromecasts)} device(s)")
 
             for cc in chromecasts:
                 try:
                     # Get device info
                     device = cc.cast_info
+
+                    # Log all device info for debugging
+                    logger.info(
+                        f"{self.name}: Found device: name='{device.friendly_name}', "
+                        f"host='{device.host}', port={device.port}, "
+                        f"model='{device.model_name}', uuid={device.uuid}, "
+                        f"cast_type='{device.cast_type}'"
+                    )
 
                     speaker = NetworkSpeaker(
                         id=str(device.uuid),  # Convert UUID object to string
@@ -146,18 +158,20 @@ class ChromecastPlugin(SpeakerPlugin):
                         }
                     )
                     speakers.append(speaker)
+                    logger.info(f"{self.name}: Added speaker '{speaker.name}' with IP {speaker.ip_address}")
 
                     # Store cast object for later use
                     self._casts[str(device.uuid)] = cc
 
                 except Exception as e:
-                    logger.debug(f"Error processing Chromecast: {e}")
+                    logger.warning(f"{self.name}: Error processing device: {e}")
 
             # Stop browser after discovery
             browser.stop_discovery()
+            logger.info(f"{self.name}: Discovery complete, found {len(speakers)} speaker(s)")
 
         except Exception as e:
-            logger.error(f"Chromecast discovery failed: {e}")
+            logger.error(f"{self.name}: Discovery failed: {e}", exc_info=True)
 
         return speakers
 
