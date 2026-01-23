@@ -3508,11 +3508,70 @@ function renderSettingsSpeakerTree() {
         `;
     }
 
+    // Network-discovered speakers (found by plugins but not in HA)
+    const directOnlySpeakers = (unifiedSpeakers || []).filter(s => !s.entity_id);
+    if (directOnlySpeakers.length > 0) {
+        html += `
+            <div class="settings-floor network-discovered">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    <span>Network Discovered</span>
+                    <span class="badge">${directOnlySpeakers.length}</span>
+                </div>
+                <div class="settings-speakers" style="margin-left: 1.5rem;">
+                    ${directOnlySpeakers.map(speaker => renderDirectOnlySpeaker(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
     if (!html) {
         html = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
     }
 
     container.innerHTML = html;
+}
+
+function renderDirectOnlySpeaker(speaker) {
+    // Direct-only speakers have IP and protocol but no HA entity
+    const ip = speaker.ip_address || '';
+    const protocol = speaker.protocol || (speaker.found_by && speaker.found_by[0]) || 'unknown';
+    const model = speaker.model || '';
+
+    // Found by badges
+    let foundByBadges = '';
+    if (speaker.found_by && speaker.found_by.length > 0) {
+        foundByBadges = `<div class="speaker-found-by">${speaker.found_by.map(source =>
+            `<span class="found-by-badge found-by-${source}">${source.toUpperCase()}</span>`
+        ).join('')}</div>`;
+    }
+
+    return `
+        <div class="settings-speaker direct-only">
+            <div class="direct-only-indicator" title="Not in Home Assistant">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                </svg>
+            </div>
+            <div class="settings-speaker-info">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                    <circle cx="12" cy="14" r="4"/>
+                    <line x1="12" y1="6" x2="12.01" y2="6"/>
+                </svg>
+                <span>${escapeHtml(speaker.name)}</span>
+                ${ip ? `<span class="speaker-ip">${escapeHtml(ip)}</span>` : ''}
+                ${model ? `<span class="speaker-model">${escapeHtml(model)}</span>` : ''}
+                ${foundByBadges}
+            </div>
+        </div>
+    `;
 }
 
 function renderSettingsArea(area, isAllEnabled) {
@@ -3533,17 +3592,23 @@ function renderSettingsArea(area, isAllEnabled) {
 
 function renderSettingsSpeaker(speaker, isAllEnabled) {
     const isEnabled = isAllEnabled || (enabledSpeakers || []).includes(speaker.entity_id);
-    const ipDisplay = speaker.ip_address ? `<span class="speaker-ip">${escapeHtml(speaker.ip_address)}</span>` : '';
 
-    // Find unified speaker data for "Found By" badges (if available)
-    let foundByBadges = '';
+    // Find unified speaker data for IP and "Found By" badges
+    let unified = null;
     if (unifiedSpeakers && unifiedSpeakers.length > 0) {
-        const unified = unifiedSpeakers.find(s => s.entity_id === speaker.entity_id);
-        if (unified && unified.found_by && unified.found_by.length > 0) {
-            foundByBadges = `<div class="speaker-found-by">${unified.found_by.map(source =>
-                `<span class="found-by-badge found-by-${source}">${source.toUpperCase()}</span>`
-            ).join('')}</div>`;
-        }
+        unified = unifiedSpeakers.find(s => s.entity_id === speaker.entity_id);
+    }
+
+    // Use IP from unified speaker if HA speaker doesn't have it (e.g., Chromecast)
+    const ip = speaker.ip_address || (unified && unified.ip_address);
+    const ipDisplay = ip ? `<span class="speaker-ip">${escapeHtml(ip)}</span>` : '';
+
+    // Found by badges
+    let foundByBadges = '';
+    if (unified && unified.found_by && unified.found_by.length > 0) {
+        foundByBadges = `<div class="speaker-found-by">${unified.found_by.map(source =>
+            `<span class="found-by-badge found-by-${source}">${source.toUpperCase()}</span>`
+        ).join('')}</div>`;
     }
 
     return `
