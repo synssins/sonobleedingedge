@@ -10,6 +10,16 @@ The refactoring unified the codebase between the **Home Assistant Addon** and **
 
 ---
 
+## v0.0.61 - Audio Distortion Fix (2026-01-23)
+
+### Critical Bug Fix
+- Fixed audio distortion on ALL speakers caused by excessive gain
+- `DEFAULT_OUTPUT_GAIN` was set to 6.0 (6x amplification) causing severe clipping
+- Changed to 1.0 (unity gain) in both `theme.py` and `channel.py`
+- Audio now plays cleanly at all volume levels
+
+---
+
 ## v0.0.60 - Speaker UI Polish (2026-01-23)
 
 ### Speaker Enable/Disable Fix

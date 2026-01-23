@@ -36,7 +36,8 @@ THEME_CROSSFADE_SAMPLES = int(THEME_CROSSFADE_DURATION * SAMPLE_RATE)
 CHUNK_SIZE = 1024
 
 # Default output gain multiplier for network streams
-DEFAULT_OUTPUT_GAIN = 6.0
+# 1.0 = unity gain (no amplification), values >1.0 will cause clipping/distortion
+DEFAULT_OUTPUT_GAIN = 1.0
 
 # Buffer size for broadcast (number of chunks to keep for late-joining clients)
 # At 1024 samples per chunk @ 44100Hz, each chunk is ~23ms

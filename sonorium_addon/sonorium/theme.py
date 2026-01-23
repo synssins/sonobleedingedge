@@ -19,7 +19,8 @@ from sonorium.utils import IndexList, sanitize
 import av
 
 # Default output gain multiplier (now controlled via device.master_volume)
-DEFAULT_OUTPUT_GAIN = 6.0
+# 1.0 = unity gain (no amplification), values >1.0 will cause clipping/distortion
+DEFAULT_OUTPUT_GAIN = 1.0
 
 # Default threshold for short file detection (seconds)
 DEFAULT_SHORT_FILE_THRESHOLD = 15.0
