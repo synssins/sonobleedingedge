@@ -34,9 +34,9 @@ VERSION_FILES = {
 def get_current_version() -> str:
     """Get current version from the root VERSION file (or standalone if root doesn't exist)."""
     if VERSION_FILES["root"].exists():
-        return VERSION_FILES["root"].read_text().strip()
+        return VERSION_FILES["root"].read_text(encoding='utf-8').strip()
     elif VERSION_FILES["standalone"].exists():
-        return VERSION_FILES["standalone"].read_text().strip()
+        return VERSION_FILES["standalone"].read_text(encoding='utf-8').strip()
     else:
         return "0.0.0"
 
@@ -80,12 +80,12 @@ def update_plain_version_file(path: Path, version: str, dry_run: bool = False) -
     if not path.parent.exists():
         print(f"  [SKIP] {path} (directory doesn't exist)")
         return False
-        
+
     if dry_run:
         print(f"  [DRY-RUN] Would write '{version}' to {path}")
         return True
-    
-    path.write_text(version + "\n")
+
+    path.write_text(version + "\n", encoding='utf-8')
     print(f"  [OK] {path}")
     return True
 
@@ -96,7 +96,7 @@ def update_config_yaml(path: Path, version: str, dry_run: bool = False) -> bool:
         print(f"  [SKIP] {path} (doesn't exist)")
         return False
     
-    content = path.read_text()
+    content = path.read_text(encoding='utf-8')
     new_content = re.sub(
         r'^version:\s*.*$',
         f'version: "{version}"',
@@ -112,7 +112,7 @@ def update_config_yaml(path: Path, version: str, dry_run: bool = False) -> bool:
         return True
     
     if new_content != content:
-        path.write_text(new_content)
+        path.write_text(new_content, encoding='utf-8')
         print(f"  [OK] {path}")
     else:
         print(f"  [OK] {path} (already at {version})")
@@ -125,7 +125,7 @@ def update_version_json(path: Path, version: str, dry_run: bool = False) -> bool
         print(f"  [SKIP] {path} (doesn't exist)")
         return False
     
-    content = path.read_text()
+    content = path.read_text(encoding='utf-8')
     data = json.loads(content)
     old_version = data.get("version", "0.0.0")
     data["version"] = version
@@ -137,7 +137,7 @@ def update_version_json(path: Path, version: str, dry_run: bool = False) -> bool
             print(f"  [DRY-RUN] {path} already at {version}")
         return True
     
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding='utf-8')
     print(f"  [OK] {path}")
     return True
 
@@ -148,7 +148,7 @@ def update_launcher_py(path: Path, version: str, dry_run: bool = False) -> bool:
         print(f"  [SKIP] {path} (doesn't exist)")
         return False
     
-    content = path.read_text()
+    content = path.read_text(encoding='utf-8')
     new_content = re.sub(
         r'APP_VERSION\s*=\s*["\'][^"\']+["\']',
         f'APP_VERSION = "{version}"',
@@ -163,7 +163,7 @@ def update_launcher_py(path: Path, version: str, dry_run: bool = False) -> bool:
         return True
     
     if new_content != content:
-        path.write_text(new_content)
+        path.write_text(new_content, encoding='utf-8')
         print(f"  [OK] {path}")
     else:
         print(f"  [OK] {path} (already at {version})")
@@ -180,17 +180,17 @@ def check_versions() -> bool:
             continue
             
         if name in ["root", "standalone", "addon"]:
-            versions[name] = path.read_text().strip()
+            versions[name] = path.read_text(encoding='utf-8').strip()
         elif name == "addon_config":
-            content = path.read_text()
+            content = path.read_text(encoding='utf-8')
             match = re.search(r'^version:\s*"?([^"\n]+)"?', content, re.MULTILINE)
             if match:
                 versions[name] = match.group(1)
         elif name == "version_json":
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding='utf-8'))
             versions[name] = data.get("version", "unknown")
         elif name == "launcher":
-            content = path.read_text()
+            content = path.read_text(encoding='utf-8')
             match = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)["\']', content)
             if match:
                 versions[name] = match.group(1)
