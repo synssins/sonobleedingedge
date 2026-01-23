@@ -1,5 +1,5 @@
 {
-  "version": "0.0.61",
+  "version": "0.0.63",
   "release_date": "2025-12-17",
   "min_launcher_version": "1.0.0",
   "changelog": "- Initial release of standalone Sonorium application\n- Multi-zone ambient soundscape mixing\n- Network speaker support (Chromecast, Sonos, DLNA)\n- Theme import/export\n- Preset management",
