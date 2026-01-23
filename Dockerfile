@@ -34,7 +34,8 @@ COPY app/core/sonorium/ /app/sonorium/
 # Copy bundled themes
 COPY app/themes/ /app/themes/
 
-# Copy icon for web UI
+# Copy logo and icon for web UI
+COPY app/core/logo.png /app/logo.png
 COPY app/core/icon.png /app/icon.png
 
 # Create data directories
