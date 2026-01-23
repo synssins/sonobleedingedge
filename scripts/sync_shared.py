@@ -31,6 +31,7 @@ SHARED_MAPPINGS = [
 # Individual files at shared/ root that sync to package root
 # These are imported as sonorium.xxx (not sonorium.core.xxx)
 ROOT_FILES = [
+    "version",            # Version number (read by version.py)
     "utils.py",           # Shared utilities
     "obs.py",             # Logging/observability
     "recording.py",       # Audio recording/mixing engine
