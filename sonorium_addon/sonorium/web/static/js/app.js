@@ -518,7 +518,7 @@ function showView(viewName) {
         'settings-speakers': 'Speakers',
         'settings-groups': 'Speaker Groups',
         'settings-plugins': 'Plugins',
-        'settings-integration': 'Integration',
+        'settings-integration': 'HA/MQTT',
         status: 'Status'
     };
     document.getElementById('view-title').textContent = titles[viewName] || viewName;
@@ -3220,107 +3220,210 @@ function renderPluginsSettings() {
 // Integration Settings (HA & MQTT)
 // =============================================================================
 
+// Store original settings for cancel functionality
+let originalIntegrationSettings = {};
+
 async function loadIntegrationSettings() {
     // Ensure capabilities are loaded
     if (!platformCapabilities) {
         await loadCapabilities();
     }
 
-    // Update HA status
-    const haStatus = document.getElementById('ha-status');
-    const haDetectionMethod = document.getElementById('ha-detection-method');
     const haEnabled = platformCapabilities?.features?.ha_integration?.enabled;
     const haDetected = platformCapabilities?.features?.ha_integration?.detected;
-
-    if (haStatus) {
-        if (haEnabled) {
-            haStatus.textContent = 'Connected';
-            haStatus.className = 'badge badge-success';
-        } else if (haDetected) {
-            haStatus.textContent = 'Available';
-            haStatus.className = 'badge badge-warning';
-        } else {
-            haStatus.textContent = 'Not Available';
-            haStatus.className = 'badge badge-secondary';
-        }
-    }
-
-    if (haDetectionMethod) {
-        if (platformCapabilities?.platform === 'ha_addon') {
-            haDetectionMethod.textContent = 'Running as Home Assistant Add-on';
-        } else if (haDetected) {
-            haDetectionMethod.textContent = 'Auto-detected via Supervisor API';
-        } else {
-            haDetectionMethod.textContent = 'Manual configuration available';
-        }
-    }
-
-    // Update MQTT status
-    const mqttStatus = document.getElementById('mqtt-status');
     const mqttEnabled = platformCapabilities?.features?.mqtt?.enabled;
     const mqttDetected = platformCapabilities?.features?.mqtt?.detected;
 
-    if (mqttStatus) {
-        if (mqttEnabled) {
-            mqttStatus.textContent = 'Connected';
-            mqttStatus.className = 'badge badge-success';
-        } else if (mqttDetected) {
-            mqttStatus.textContent = 'Available';
-            mqttStatus.className = 'badge badge-warning';
-        } else {
-            mqttStatus.textContent = 'Not Configured';
-            mqttStatus.className = 'badge badge-secondary';
-        }
-    }
+    // Update HA status with icon
+    updateStatusDisplay('ha', haEnabled, haDetected);
 
-    // Show/hide override option based on platform
-    const overrideGroup = document.getElementById('mqtt-override-group');
-    const canOverride = platformCapabilities?.features?.mqtt?.can_override !== false;
-    if (overrideGroup) {
-        overrideGroup.style.display = canOverride ? '' : 'none';
-    }
+    // Update MQTT status with icon
+    updateStatusDisplay('mqtt', mqttEnabled, mqttDetected);
 
-    // Load actual settings values if available
+    // Load settings and populate fields
     try {
         const settings = await api('GET', '/settings/integration');
         if (settings && !settings.error) {
-            document.getElementById('mqtt-host').value = settings.mqtt_host || '';
-            document.getElementById('mqtt-port').value = settings.mqtt_port || 1883;
-            document.getElementById('mqtt-username').value = settings.mqtt_username || '';
-            // Password is not returned for security, leave empty
+            // Store original for cancel
+            originalIntegrationSettings = { ...settings };
+
+            // Populate HA fields
+            const haUrl = document.getElementById('ha-url');
+            const haToken = document.getElementById('ha-token');
+            if (haUrl) haUrl.value = settings.ha_url || '';
+            if (haToken) haToken.value = ''; // Token not returned for security
+
+            // Populate MQTT fields
+            const mqttHost = document.getElementById('mqtt-host');
+            const mqttPort = document.getElementById('mqtt-port');
+            const mqttUsername = document.getElementById('mqtt-username');
+            if (mqttHost) mqttHost.value = settings.mqtt_host || '';
+            if (mqttPort) mqttPort.value = settings.mqtt_port || 1883;
+            if (mqttUsername) mqttUsername.value = settings.mqtt_username || '';
+
+            // Set autodetect toggles based on settings
+            const haAutodetect = document.getElementById('ha-autodetect');
+            const mqttAutodetect = document.getElementById('mqtt-autodetect');
+
+            // Default to autodetect ON if detected, or based on stored override setting
+            if (haAutodetect) {
+                haAutodetect.checked = settings.ha_autodetect !== false;
+                toggleHAAutodetect();
+            }
+            if (mqttAutodetect) {
+                mqttAutodetect.checked = settings.mqtt_autodetect !== false;
+                toggleMQTTAutodetect();
+            }
         }
     } catch (error) {
-        console.log('Integration settings endpoint not available');
+        console.log('Integration settings endpoint not available:', error);
+        // Set defaults - autodetect ON
+        const haAutodetect = document.getElementById('ha-autodetect');
+        const mqttAutodetect = document.getElementById('mqtt-autodetect');
+        if (haAutodetect) {
+            haAutodetect.checked = true;
+            toggleHAAutodetect();
+        }
+        if (mqttAutodetect) {
+            mqttAutodetect.checked = true;
+            toggleMQTTAutodetect();
+        }
     }
 }
 
-function toggleMQTTOverride() {
-    const override = document.getElementById('mqtt-override-toggle').checked;
-    const fields = ['mqtt-host', 'mqtt-port', 'mqtt-username', 'mqtt-password'];
-    const actionsEl = document.getElementById('integration-actions');
+function updateStatusDisplay(prefix, enabled, detected) {
+    const statusText = document.getElementById(`${prefix}-status`);
+    const statusIcon = document.getElementById(`${prefix}-status-icon`);
+
+    if (!statusText || !statusIcon) return;
+
+    // Clear existing classes
+    statusIcon.className = 'status-icon';
+
+    if (enabled) {
+        statusText.textContent = 'Connected';
+        statusIcon.classList.add('status-connected');
+        statusIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>`;
+    } else if (detected) {
+        statusText.textContent = 'Available';
+        statusIcon.classList.add('status-available');
+        statusIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>`;
+    } else {
+        statusText.textContent = 'Not Configured';
+        statusIcon.classList.add('status-disconnected');
+        statusIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="15" y1="9" x2="9" y2="15"/>
+            <line x1="9" y1="9" x2="15" y2="15"/>
+        </svg>`;
+    }
+}
+
+function toggleHAAutodetect() {
+    const autodetect = document.getElementById('ha-autodetect')?.checked ?? true;
+    const manualFields = document.getElementById('ha-manual-fields');
+    const fields = ['ha-url', 'ha-token'];
+
+    if (manualFields) {
+        manualFields.classList.toggle('disabled', autodetect);
+    }
 
     fields.forEach(id => {
         const el = document.getElementById(id);
-        if (el) {
-            el.disabled = !override;
-        }
+        if (el) el.disabled = autodetect;
     });
 
+    updateIntegrationActionsVisibility();
+}
+
+function toggleMQTTAutodetect() {
+    const autodetect = document.getElementById('mqtt-autodetect')?.checked ?? true;
+    const manualFields = document.getElementById('mqtt-manual-fields');
+    const fields = ['mqtt-host', 'mqtt-port', 'mqtt-username', 'mqtt-password'];
+
+    if (manualFields) {
+        manualFields.classList.toggle('disabled', autodetect);
+    }
+
+    fields.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = autodetect;
+    });
+
+    updateIntegrationActionsVisibility();
+}
+
+function updateIntegrationActionsVisibility() {
+    const haAutodetect = document.getElementById('ha-autodetect')?.checked ?? true;
+    const mqttAutodetect = document.getElementById('mqtt-autodetect')?.checked ?? true;
+    const actionsEl = document.getElementById('integration-actions');
+
+    // Show Save/Cancel if either autodetect is OFF (manual mode)
     if (actionsEl) {
-        actionsEl.style.display = override ? '' : 'none';
+        actionsEl.style.display = (!haAutodetect || !mqttAutodetect) ? '' : 'none';
     }
 }
 
+function cancelIntegrationSettings() {
+    // Restore original values
+    const haUrl = document.getElementById('ha-url');
+    const mqttHost = document.getElementById('mqtt-host');
+    const mqttPort = document.getElementById('mqtt-port');
+    const mqttUsername = document.getElementById('mqtt-username');
+
+    if (haUrl) haUrl.value = originalIntegrationSettings.ha_url || '';
+    if (mqttHost) mqttHost.value = originalIntegrationSettings.mqtt_host || '';
+    if (mqttPort) mqttPort.value = originalIntegrationSettings.mqtt_port || 1883;
+    if (mqttUsername) mqttUsername.value = originalIntegrationSettings.mqtt_username || '';
+
+    // Reset autodetect toggles to ON
+    const haAutodetect = document.getElementById('ha-autodetect');
+    const mqttAutodetect = document.getElementById('mqtt-autodetect');
+    if (haAutodetect) {
+        haAutodetect.checked = true;
+        toggleHAAutodetect();
+    }
+    if (mqttAutodetect) {
+        mqttAutodetect.checked = true;
+        toggleMQTTAutodetect();
+    }
+
+    showToast('Changes cancelled', 'info');
+}
+
 async function saveIntegrationSettings() {
+    const haAutodetect = document.getElementById('ha-autodetect')?.checked ?? true;
+    const mqttAutodetect = document.getElementById('mqtt-autodetect')?.checked ?? true;
+
     const settings = {
-        mqtt_host: document.getElementById('mqtt-host').value || null,
-        mqtt_port: parseInt(document.getElementById('mqtt-port').value) || 1883,
-        mqtt_username: document.getElementById('mqtt-username').value || null,
-        mqtt_password: document.getElementById('mqtt-password').value || null
+        // Autodetect flags
+        ha_autodetect: haAutodetect,
+        mqtt_autodetect: mqttAutodetect,
+        // HA manual settings (only used when autodetect is off)
+        ha_url: document.getElementById('ha-url')?.value || null,
+        ha_token: document.getElementById('ha-token')?.value || null,
+        // MQTT manual settings (only used when autodetect is off)
+        mqtt_host: document.getElementById('mqtt-host')?.value || null,
+        mqtt_port: parseInt(document.getElementById('mqtt-port')?.value) || 1883,
+        mqtt_username: document.getElementById('mqtt-username')?.value || null,
+        mqtt_password: document.getElementById('mqtt-password')?.value || null
     };
 
     try {
         await api('PUT', '/settings/integration', settings);
+        // Update original settings cache
+        originalIntegrationSettings = { ...settings };
+        // Reload capabilities to reflect any changes
+        await loadCapabilities();
+        // Reload the page status
+        await loadIntegrationSettings();
         showToast('Integration settings saved', 'success');
     } catch (error) {
         showToast(error.message || 'Failed to save integration settings', 'error');

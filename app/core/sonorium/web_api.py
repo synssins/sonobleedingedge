@@ -865,17 +865,36 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         """Get integration settings (HA/MQTT configuration)."""
         config = get_config()
         return {
+            # Autodetect flags
+            'ha_autodetect': getattr(config, 'ha_autodetect', True),
+            'mqtt_autodetect': getattr(config, 'mqtt_autodetect', True),
+            # HA settings
+            'ha_url': getattr(config, 'ha_url', None),
+            # ha_token not returned for security
+            # MQTT settings
             'mqtt_host': getattr(config, 'mqtt_host', None),
             'mqtt_port': getattr(config, 'mqtt_port', 1883),
             'mqtt_username': getattr(config, 'mqtt_username', None),
-            # Password not returned for security
+            # mqtt_password not returned for security
         }
 
     @fastapi_app.put('/api/settings/integration')
     async def update_integration_settings(request: Request):
-        """Update integration settings (MQTT configuration)."""
+        """Update integration settings (HA/MQTT configuration)."""
         body = await request.json()
         config = get_config()
+
+        # Update autodetect flags
+        if 'ha_autodetect' in body:
+            config.ha_autodetect = body['ha_autodetect']
+        if 'mqtt_autodetect' in body:
+            config.mqtt_autodetect = body['mqtt_autodetect']
+
+        # Update HA settings (only saved when provided)
+        if 'ha_url' in body:
+            config.ha_url = body['ha_url']
+        if 'ha_token' in body and body['ha_token']:
+            config.ha_token = body['ha_token']
 
         # Update MQTT settings
         if 'mqtt_host' in body:

@@ -202,7 +202,14 @@ class AppConfig:
     output_gain: float = 6.0  # Output gain multiplier for network streams (0.0 - 10.0)
     max_channels: int = 4     # Maximum number of concurrent streaming channels
 
-    # MQTT/HA Integration settings (for manual configuration on standalone)
+    # HA/MQTT Integration settings (for manual configuration on standalone)
+    # Autodetect flags (True = use auto-detection, False = use manual settings)
+    ha_autodetect: bool = True
+    mqtt_autodetect: bool = True
+    # HA manual settings
+    ha_url: str | None = None
+    ha_token: str | None = None
+    # MQTT manual settings
     mqtt_host: str | None = None
     mqtt_port: int = 1883
     mqtt_username: str | None = None

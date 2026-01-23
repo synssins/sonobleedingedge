@@ -106,7 +106,7 @@
                             <circle cx="12" cy="12" r="10"/>
                             <path d="M12 6v6l4 2"/>
                         </svg>
-                        <span>Integration</span>
+                        <span>HA/MQTT</span>
                     </div>
                 </div>
             </div>
@@ -672,48 +672,90 @@ Example:
             <!-- Integration Settings View -->
             <div id="view-settings-integration" class="view">
                 <div class="settings-section">
-                    <h3>Home Assistant Integration</h3>
-                    <p>Configure how Sonorium integrates with Home Assistant.</p>
-
-                    <div class="settings-form">
-                        <div class="settings-group" id="ha-settings-group">
-                            <div class="setting-item">
-                                <label>Status</label>
-                                <div class="setting-value">
-                                    <span id="ha-status" class="badge badge-info">Checking...</span>
-                                </div>
-                            </div>
-                            <div class="setting-item">
-                                <label>Detection Method</label>
-                                <div class="setting-value">
-                                    <span id="ha-detection-method">--</span>
-                                </div>
+                    <!-- Home Assistant Section -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3>Home Assistant</h3>
+                            <div class="status-inline" id="ha-status-container">
+                                <span class="status-label">Status:</span>
+                                <span id="ha-status-icon" class="status-icon status-checking">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <path d="M12 6v6l4 2"/>
+                                    </svg>
+                                </span>
+                                <span id="ha-status" class="status-text">Checking...</span>
                             </div>
                         </div>
 
-                        <div class="settings-group">
-                            <h4>MQTT Settings</h4>
-                            <p class="setting-description">MQTT broker connection for Home Assistant entity updates.</p>
+                        <div class="setting-item">
+                            <label>Autodetect</label>
+                            <div class="setting-value">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="ha-autodetect" checked onchange="toggleHAAutodetect()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="setting-hint">Automatically detect Home Assistant connection</span>
+                            </div>
+                        </div>
 
+                        <div id="ha-manual-fields" class="manual-fields disabled">
                             <div class="setting-item">
-                                <label>Status</label>
+                                <label for="ha-url">Supervisor URL</label>
                                 <div class="setting-value">
-                                    <span id="mqtt-status" class="badge badge-info">Checking...</span>
+                                    <input type="text" id="ha-url" class="form-control" placeholder="http://supervisor/core" disabled>
                                 </div>
                             </div>
 
                             <div class="setting-item">
+                                <label for="ha-token">Long-Lived Access Token</label>
+                                <div class="setting-value">
+                                    <input type="password" id="ha-token" class="form-control" placeholder="Enter token..." disabled>
+                                    <span class="setting-hint">Create in HA: Profile → Long-Lived Access Tokens</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MQTT Section -->
+                    <div class="settings-group">
+                        <div class="settings-group-header">
+                            <h3>MQTT</h3>
+                            <div class="status-inline" id="mqtt-status-container">
+                                <span class="status-label">Status:</span>
+                                <span id="mqtt-status-icon" class="status-icon status-checking">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <path d="M12 6v6l4 2"/>
+                                    </svg>
+                                </span>
+                                <span id="mqtt-status" class="status-text">Checking...</span>
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <label>Autodetect</label>
+                            <div class="setting-value">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="mqtt-autodetect" checked onchange="toggleMQTTAutodetect()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="setting-hint">Automatically detect MQTT from Home Assistant</span>
+                            </div>
+                        </div>
+
+                        <div id="mqtt-manual-fields" class="manual-fields disabled">
+                            <div class="setting-item">
                                 <label for="mqtt-host">Host</label>
                                 <div class="setting-value">
-                                    <input type="text" id="mqtt-host" class="form-control" placeholder="auto" disabled>
-                                    <span class="setting-hint" id="mqtt-host-hint">Auto-detected from Home Assistant</span>
+                                    <input type="text" id="mqtt-host" class="form-control" placeholder="localhost" disabled>
                                 </div>
                             </div>
 
                             <div class="setting-item">
                                 <label for="mqtt-port">Port</label>
                                 <div class="setting-value">
-                                    <input type="number" id="mqtt-port" class="form-control" placeholder="1883" disabled>
+                                    <input type="number" id="mqtt-port" class="form-control" placeholder="1883" value="1883" disabled>
                                 </div>
                             </div>
 
@@ -730,23 +772,13 @@ Example:
                                     <input type="password" id="mqtt-password" class="form-control" placeholder="Optional" disabled>
                                 </div>
                             </div>
-
-                            <div class="setting-item" id="mqtt-override-group" style="display: none;">
-                                <label>Manual Override</label>
-                                <div class="setting-value">
-                                    <label class="toggle">
-                                        <input type="checkbox" id="mqtt-override-toggle" onchange="toggleMQTTOverride()">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                    <span class="setting-hint">Enable to manually configure MQTT settings</span>
-                                </div>
-                            </div>
                         </div>
+                    </div>
 
-                        <div class="settings-actions" id="integration-actions" style="display: none;">
-                            <button class="btn btn-primary" onclick="saveIntegrationSettings()">Save Settings</button>
-                            <button class="btn btn-secondary" onclick="resetIntegrationSettings()">Reset to Defaults</button>
-                        </div>
+                    <!-- Save/Cancel Actions -->
+                    <div class="settings-actions" id="integration-actions" style="display: none;">
+                        <button class="btn btn-primary" onclick="saveIntegrationSettings()">Save</button>
+                        <button class="btn btn-secondary" onclick="cancelIntegrationSettings()">Cancel</button>
                     </div>
                 </div>
             </div>
