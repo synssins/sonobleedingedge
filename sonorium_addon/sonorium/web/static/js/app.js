@@ -1228,7 +1228,7 @@ function renderThemeSelector() {
     container.innerHTML = themes.map(theme => `
         <div class="theme-card ${selectedTheme === theme.id ? 'selected' : ''}"
              onclick="selectTheme('${theme.id}')">
-            <div class="theme-icon">${getThemeIcon(theme.id)}</div>
+            <div class="theme-icon">${resolveThemeIcon(theme.icon, theme.id)}</div>
             <div class="theme-name">${escapeHtml(theme.name)}</div>
         </div>
     `).join('');
