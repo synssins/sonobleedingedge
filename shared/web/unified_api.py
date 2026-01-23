@@ -162,6 +162,9 @@ def create_unified_app(
     if capabilities.ha.enabled:
         register_ha_specific_endpoints(app)
 
+    # Always register logs endpoints
+    register_logs_endpoints(app)
+
     # Mount static files if provided
     if static_dir and static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -889,6 +892,68 @@ def register_ha_specific_endpoints(app: FastAPI) -> None:
 
 
 # =============================================================================
+# Internal Logs Endpoints
+# =============================================================================
+
+def register_logs_endpoints(app: FastAPI) -> None:
+    """Register internal logs endpoints for Status page."""
+
+    @app.get('/api/logs')
+    async def get_logs(
+        category: Optional[str] = None,
+        level: Optional[str] = None,
+        limit: int = 50
+    ) -> dict:
+        """
+        Get internal logs for the Status page.
+
+        Args:
+            category: Filter by category (core, discovery, playback, plugins, ha, mqtt, api)
+            level: Filter by minimum level (debug, info, warning, error)
+            limit: Maximum entries to return (default 50)
+
+        Returns:
+            List of log entries, newest first
+        """
+        from sonorium.core.log_collector import get_log_collector
+
+        log_collector = get_log_collector()
+        logs = log_collector.get_logs(category=category, level=level, limit=limit)
+
+        return {
+            "status": "ok",
+            "count": len(logs),
+            "logs": logs
+        }
+
+    @app.get('/api/logs/categories')
+    async def get_log_categories() -> dict:
+        """Get list of log categories with entry counts."""
+        from sonorium.core.log_collector import get_log_collector
+
+        log_collector = get_log_collector()
+        categories = log_collector.get_categories()
+
+        return {
+            "status": "ok",
+            "categories": categories
+        }
+
+    @app.delete('/api/logs')
+    async def clear_logs(category: Optional[str] = None) -> dict:
+        """Clear logs, optionally for a specific category."""
+        from sonorium.core.log_collector import get_log_collector
+
+        log_collector = get_log_collector()
+        log_collector.clear(category=category)
+
+        return {
+            "status": "ok",
+            "message": f"Logs cleared" + (f" for category '{category}'" if category else "")
+        }
+
+
+# =============================================================================
 # Integration with Existing API
 # =============================================================================
 
@@ -937,6 +1002,10 @@ def add_unified_endpoints_to_app(
     if capabilities.ha.enabled:
         if '/api/speakers/refresh-ha' not in existing_routes:
             register_ha_specific_endpoints(app)
+
+    # Always register logs endpoints
+    if '/api/logs' not in existing_routes:
+        register_logs_endpoints(app)
 
     logger.info(f"Unified endpoints added to app (platform: {capabilities.platform})")
 

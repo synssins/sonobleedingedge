@@ -3331,6 +3331,18 @@ async function loadIntegrationSettings() {
             // Store original for cancel
             originalIntegrationSettings = { ...settings };
 
+            // Set section enabled toggles
+            const haEnabledEl = document.getElementById('ha-enabled');
+            const mqttEnabledEl = document.getElementById('mqtt-enabled');
+            if (haEnabledEl) {
+                haEnabledEl.checked = settings.ha_enabled !== false;
+                toggleHASection();
+            }
+            if (mqttEnabledEl) {
+                mqttEnabledEl.checked = settings.mqtt_enabled !== false;
+                toggleMQTTSection();
+            }
+
             // Populate HA fields
             const haUrl = document.getElementById('ha-url');
             const haToken = document.getElementById('ha-token');
@@ -3361,9 +3373,19 @@ async function loadIntegrationSettings() {
         }
     } catch (error) {
         console.log('Integration settings endpoint not available:', error);
-        // Set defaults - autodetect ON
+        // Set defaults - all enabled, autodetect ON
+        const haEnabledEl = document.getElementById('ha-enabled');
+        const mqttEnabledEl = document.getElementById('mqtt-enabled');
         const haAutodetect = document.getElementById('ha-autodetect');
         const mqttAutodetect = document.getElementById('mqtt-autodetect');
+        if (haEnabledEl) {
+            haEnabledEl.checked = true;
+            toggleHASection();
+        }
+        if (mqttEnabledEl) {
+            mqttEnabledEl.checked = true;
+            toggleMQTTSection();
+        }
         if (haAutodetect) {
             haAutodetect.checked = true;
             toggleHAAutodetect();
@@ -3444,18 +3466,66 @@ function toggleMQTTAutodetect() {
     updateIntegrationActionsVisibility();
 }
 
+function toggleHASection() {
+    const enabled = document.getElementById('ha-enabled')?.checked ?? true;
+    const section = document.getElementById('ha-section');
+    const content = document.getElementById('ha-content');
+
+    if (section) {
+        section.classList.toggle('section-disabled', !enabled);
+    }
+
+    // When HA is enabled, MQTT is also enabled by default
+    if (enabled) {
+        const mqttEnabled = document.getElementById('mqtt-enabled');
+        if (mqttEnabled && !mqttEnabled.checked) {
+            mqttEnabled.checked = true;
+            toggleMQTTSection();
+        }
+    }
+
+    updateIntegrationActionsVisibility();
+}
+
+function toggleMQTTSection() {
+    const enabled = document.getElementById('mqtt-enabled')?.checked ?? true;
+    const section = document.getElementById('mqtt-section');
+
+    if (section) {
+        section.classList.toggle('section-disabled', !enabled);
+    }
+
+    updateIntegrationActionsVisibility();
+}
+
 function updateIntegrationActionsVisibility() {
+    const haEnabled = document.getElementById('ha-enabled')?.checked ?? true;
+    const mqttEnabled = document.getElementById('mqtt-enabled')?.checked ?? true;
     const haAutodetect = document.getElementById('ha-autodetect')?.checked ?? true;
     const mqttAutodetect = document.getElementById('mqtt-autodetect')?.checked ?? true;
     const actionsEl = document.getElementById('integration-actions');
 
-    // Show Save/Cancel if either autodetect is OFF (manual mode)
+    // Show Save/Cancel if settings have changed from defaults
+    // This includes: section toggles changed, or manual mode settings
+    const showActions = !haEnabled || !mqttEnabled || !haAutodetect || !mqttAutodetect;
     if (actionsEl) {
-        actionsEl.style.display = (!haAutodetect || !mqttAutodetect) ? '' : 'none';
+        actionsEl.style.display = showActions ? '' : 'none';
     }
 }
 
 function cancelIntegrationSettings() {
+    // Restore section enabled toggles
+    const haEnabledEl = document.getElementById('ha-enabled');
+    const mqttEnabledEl = document.getElementById('mqtt-enabled');
+    if (haEnabledEl) {
+        haEnabledEl.checked = originalIntegrationSettings.ha_enabled !== false;
+        toggleHASection();
+    }
+    if (mqttEnabledEl) {
+        mqttEnabledEl.checked = originalIntegrationSettings.mqtt_enabled !== false;
+        toggleMQTTSection();
+    }
+
     // Restore original values
     const haUrl = document.getElementById('ha-url');
     const mqttHost = document.getElementById('mqtt-host');
@@ -3467,15 +3537,15 @@ function cancelIntegrationSettings() {
     if (mqttPort) mqttPort.value = originalIntegrationSettings.mqtt_port || 1883;
     if (mqttUsername) mqttUsername.value = originalIntegrationSettings.mqtt_username || '';
 
-    // Reset autodetect toggles to ON
+    // Restore autodetect toggles
     const haAutodetect = document.getElementById('ha-autodetect');
     const mqttAutodetect = document.getElementById('mqtt-autodetect');
     if (haAutodetect) {
-        haAutodetect.checked = true;
+        haAutodetect.checked = originalIntegrationSettings.ha_autodetect !== false;
         toggleHAAutodetect();
     }
     if (mqttAutodetect) {
-        mqttAutodetect.checked = true;
+        mqttAutodetect.checked = originalIntegrationSettings.mqtt_autodetect !== false;
         toggleMQTTAutodetect();
     }
 
@@ -3483,10 +3553,15 @@ function cancelIntegrationSettings() {
 }
 
 async function saveIntegrationSettings() {
+    const haEnabled = document.getElementById('ha-enabled')?.checked ?? true;
+    const mqttEnabled = document.getElementById('mqtt-enabled')?.checked ?? true;
     const haAutodetect = document.getElementById('ha-autodetect')?.checked ?? true;
     const mqttAutodetect = document.getElementById('mqtt-autodetect')?.checked ?? true;
 
     const settings = {
+        // Section enabled flags
+        ha_enabled: haEnabled,
+        mqtt_enabled: mqttEnabled,
         // Autodetect flags
         ha_autodetect: haAutodetect,
         mqtt_autodetect: mqttAutodetect,
@@ -4206,6 +4281,39 @@ async function renderStatus() {
             </div>
         </div>
     `).join('');
+
+    // Populate About section
+    renderAboutInfo();
+}
+
+function renderAboutInfo() {
+    // Get version and platform from capabilities
+    const versionEl = document.getElementById('about-version');
+    const platformEl = document.getElementById('about-platform');
+    const buildEl = document.getElementById('about-build');
+
+    if (platformCapabilities) {
+        if (versionEl) versionEl.textContent = platformCapabilities.version || 'Unknown';
+        if (platformEl) {
+            const platform = platformCapabilities.platform || 'unknown';
+            const platformNames = {
+                'standalone': 'Windows Standalone',
+                'ha_addon': 'Home Assistant Add-on',
+                'docker': 'Docker Container'
+            };
+            platformEl.textContent = platformNames[platform] || platform;
+        }
+        if (buildEl) {
+            const buildDate = new Date().toLocaleDateString();
+            buildEl.textContent = `${platformCapabilities.version || 'dev'} (${buildDate})`;
+        }
+    } else {
+        // Fetch status for version info
+        api('GET', '/status').then(status => {
+            if (versionEl) versionEl.textContent = status.version || 'Unknown';
+            if (buildEl) buildEl.textContent = status.version || 'dev';
+        }).catch(() => {});
+    }
 }
 
 async function refreshStatus() {

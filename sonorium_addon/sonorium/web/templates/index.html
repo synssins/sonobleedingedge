@@ -673,11 +673,16 @@ Example:
             <div id="view-settings-integration" class="view">
                 <div class="settings-section">
                     <!-- Home Assistant Section -->
-                    <div class="settings-group">
+                    <div class="settings-group" id="ha-section">
                         <div class="settings-group-header">
-                            <h3>Home Assistant</h3>
+                            <div class="section-toggle">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="ha-enabled" checked onchange="toggleHASection()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <h3>Home Assistant</h3>
+                            </div>
                             <div class="status-inline" id="ha-status-container">
-                                <span class="status-label">Status:</span>
                                 <span id="ha-status-icon" class="status-icon status-checking">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <circle cx="12" cy="12" r="10"/>
@@ -688,42 +693,49 @@ Example:
                             </div>
                         </div>
 
-                        <div class="setting-item">
-                            <label>Autodetect</label>
-                            <div class="setting-value">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="ha-autodetect" checked onchange="toggleHAAutodetect()">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span class="setting-hint">Automatically detect Home Assistant connection</span>
-                            </div>
-                        </div>
-
-                        <div id="ha-manual-fields" class="manual-fields disabled">
+                        <div class="settings-group-content" id="ha-content">
                             <div class="setting-item">
-                                <label for="ha-url">Home Assistant URL</label>
+                                <label>Autodetect</label>
                                 <div class="setting-value">
-                                    <input type="text" id="ha-url" class="form-control" placeholder="http://homeassistant.local:8123" disabled>
-                                    <span class="setting-hint">e.g., http://homeassistant.local:8123 or http://192.168.1.100:8123</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="ha-autodetect" checked onchange="toggleHAAutodetect()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-hint">Automatically detect Home Assistant connection</span>
                                 </div>
                             </div>
 
-                            <div class="setting-item">
-                                <label for="ha-token">Long-Lived Access Token</label>
-                                <div class="setting-value">
-                                    <input type="password" id="ha-token" class="form-control" placeholder="Enter token..." disabled>
-                                    <span class="setting-hint">Create in HA: Profile → Long-Lived Access Tokens</span>
+                            <div id="ha-manual-fields" class="manual-fields disabled">
+                                <div class="setting-item">
+                                    <label for="ha-url">Home Assistant URL</label>
+                                    <div class="setting-value">
+                                        <input type="text" id="ha-url" placeholder="http://homeassistant.local:8123" disabled>
+                                        <span class="setting-hint">e.g., http://homeassistant.local:8123 or http://192.168.1.100:8123</span>
+                                    </div>
+                                </div>
+
+                                <div class="setting-item">
+                                    <label for="ha-token">Long-Lived Access Token</label>
+                                    <div class="setting-value">
+                                        <input type="password" id="ha-token" placeholder="Enter token..." disabled>
+                                        <span class="setting-hint">Create in HA: Profile → Long-Lived Access Tokens</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- MQTT Section -->
-                    <div class="settings-group">
+                    <div class="settings-group" id="mqtt-section">
                         <div class="settings-group-header">
-                            <h3>MQTT</h3>
+                            <div class="section-toggle">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="mqtt-enabled" checked onchange="toggleMQTTSection()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <h3>MQTT</h3>
+                            </div>
                             <div class="status-inline" id="mqtt-status-container">
-                                <span class="status-label">Status:</span>
                                 <span id="mqtt-status-icon" class="status-icon status-checking">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <circle cx="12" cy="12" r="10"/>
@@ -734,43 +746,45 @@ Example:
                             </div>
                         </div>
 
-                        <div class="setting-item">
-                            <label>Autodetect</label>
-                            <div class="setting-value">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="mqtt-autodetect" checked onchange="toggleMQTTAutodetect()">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span class="setting-hint">Automatically detect MQTT from Home Assistant</span>
-                            </div>
-                        </div>
-
-                        <div id="mqtt-manual-fields" class="manual-fields disabled">
+                        <div class="settings-group-content" id="mqtt-content">
                             <div class="setting-item">
-                                <label for="mqtt-host">Host</label>
+                                <label>Autodetect</label>
                                 <div class="setting-value">
-                                    <input type="text" id="mqtt-host" class="form-control" placeholder="localhost" disabled>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="mqtt-autodetect" checked onchange="toggleMQTTAutodetect()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-hint">Automatically detect MQTT from Home Assistant</span>
                                 </div>
                             </div>
 
-                            <div class="setting-item">
-                                <label for="mqtt-port">Port</label>
-                                <div class="setting-value">
-                                    <input type="number" id="mqtt-port" class="form-control" placeholder="1883" value="1883" disabled>
+                            <div id="mqtt-manual-fields" class="manual-fields disabled">
+                                <div class="setting-item">
+                                    <label for="mqtt-host">Host</label>
+                                    <div class="setting-value">
+                                        <input type="text" id="mqtt-host" placeholder="localhost" disabled>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div class="setting-item">
-                                <label for="mqtt-username">Username</label>
-                                <div class="setting-value">
-                                    <input type="text" id="mqtt-username" class="form-control" placeholder="Optional" disabled>
+                                <div class="setting-item">
+                                    <label for="mqtt-port">Port</label>
+                                    <div class="setting-value">
+                                        <input type="number" id="mqtt-port" placeholder="1883" value="1883" disabled>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div class="setting-item">
-                                <label for="mqtt-password">Password</label>
-                                <div class="setting-value">
-                                    <input type="password" id="mqtt-password" class="form-control" placeholder="Optional" disabled>
+                                <div class="setting-item">
+                                    <label for="mqtt-username">Username</label>
+                                    <div class="setting-value">
+                                        <input type="text" id="mqtt-username" placeholder="Optional" disabled>
+                                    </div>
+                                </div>
+
+                                <div class="setting-item">
+                                    <label for="mqtt-password">Password</label>
+                                    <div class="setting-value">
+                                        <input type="password" id="mqtt-password" placeholder="Optional" disabled>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -794,43 +808,6 @@ Example:
                     <div class="status-card">
                         <h4>Total Speakers</h4>
                         <div id="status-total-speakers" class="status-value">0</div>
-                    </div>
-                </div>
-
-                <!-- Updates Section -->
-                <div class="settings-section" style="margin-top: 1.5rem;">
-                    <div class="settings-group-header">
-                        <h3>Software Updates</h3>
-                        <div class="status-inline" id="update-status-container">
-                            <span id="update-status-icon" class="status-icon status-connected">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                                    <polyline points="22 4 12 14.01 9 11.01"/>
-                                </svg>
-                            </span>
-                            <span id="update-status-text" class="status-text">Up to date</span>
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label>Current Version</label>
-                        <div class="setting-value">
-                            <span id="current-version-display">...</span>
-                        </div>
-                    </div>
-                    <div class="setting-item" id="latest-version-row" style="display: none;">
-                        <label>Latest Version</label>
-                        <div class="setting-value">
-                            <span id="latest-version-display">...</span>
-                        </div>
-                    </div>
-                    <div class="settings-actions" style="margin-top: 1rem;">
-                        <button class="btn btn-secondary" onclick="manualCheckForUpdates()" id="check-update-btn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.5rem;">
-                                <polyline points="23 4 23 10 17 10"></polyline>
-                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                            </svg>
-                            Check for Updates
-                        </button>
                     </div>
                 </div>
 
@@ -895,6 +872,34 @@ Example:
                         <div id="logs-container" class="logs-container">
                             <div class="logs-empty">No logs yet. Logs will appear here as the system operates.</div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- About Section -->
+                <div class="settings-section about-section" style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                    <h3>About Sonorium</h3>
+                    <div class="about-info">
+                        <div class="about-row">
+                            <span class="about-label">Version</span>
+                            <span id="about-version" class="about-value">...</span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">Platform</span>
+                            <span id="about-platform" class="about-value">...</span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">Build</span>
+                            <span id="about-build" class="about-value">...</span>
+                        </div>
+                    </div>
+                    <p class="about-description">Multi-zone ambient soundscape mixer for whole-home audio.</p>
+                    <div class="about-links">
+                        <a href="https://github.com/synssins/sonobleedingedge" target="_blank" class="about-link">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/>
+                            </svg>
+                            GitHub
+                        </a>
                     </div>
                 </div>
             </div>
