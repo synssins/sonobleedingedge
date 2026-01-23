@@ -16,19 +16,21 @@ from pathlib import Path
 
 
 # Sync from shared/ directory (plugin system, platform adapters, core modules)
+# Format: (source in shared/, destination subdirectory, merge_mode)
+# merge_mode: False = replace entire directory, True = merge (preserve target-specific files)
 SHARED_MAPPINGS = [
-    # (source in shared/, destination subdirectory)
-    ("plugins", "plugins"),           # Plugin system (base.py, speaker_base.py, etc.)
-    ("platform", "platform"),         # Platform adapters (PathProvider, ConfigProvider)
-    ("models", "models"),             # Platform-agnostic data models (UnifiedSpeaker, etc.)
+    ("core", "core", True),           # Core modules - MERGE to preserve HA-specific files
+    ("plugins", "plugins", False),    # Plugin system (base.py, speaker_base.py, etc.)
+    ("platform", "platform", False),  # Platform adapters (PathProvider, ConfigProvider)
+    ("models", "models", False),      # Platform-agnostic data models (UnifiedSpeaker, etc.)
     # Future extractions:
-    ("modules", "modules"),           # Optional features (recording, etc.)
+    ("modules", "modules", False),    # Optional features (recording, etc.)
 ]
 
-# Individual core files that sync to the package root
+# Individual core files that sync to the package root (utils.py for backward compat)
 CORE_FILES = [
     # (source file in shared/core/, destination filename)
-    ("utils.py", "utils.py"),         # Shared utilities (IndexList, sanitize, network funcs)
+    ("utils.py", "utils.py"),         # Shared utilities (also in core/, but keep at root for imports)
 ]
 
 # Sync from root plugins/ directory (actual plugin packages)
@@ -39,15 +41,40 @@ PLUGIN_MAPPINGS = [
 ]
 
 
-def sync_directory(src_path: Path, dst_path: Path, verbose: bool = False) -> int:
+def sync_directory(src_path: Path, dst_path: Path, verbose: bool = False, merge: bool = False) -> int:
     """
     Sync a source directory to destination.
     Returns number of files synced.
+
+    Args:
+        src_path: Source directory or file
+        dst_path: Destination directory or file
+        verbose: Print progress messages
+        merge: If True, copy files without removing destination first (preserves extra files)
     """
     if not src_path.exists():
         return 0
 
-    # Remove destination if it exists
+    # For merge mode with directories, copy files individually
+    # Skip __init__.py so each platform can have its own exports
+    if merge and src_path.is_dir():
+        dst_path.mkdir(parents=True, exist_ok=True)
+        count = 0
+        for src_file in src_path.rglob('*'):
+            if src_file.is_file() and '__pycache__' not in str(src_file) and not src_file.suffix == '.pyc':
+                # Skip __init__.py in merge mode - platforms define their own exports
+                if src_file.name == '__init__.py':
+                    continue
+                rel_path = src_file.relative_to(src_path)
+                dst_file = dst_path / rel_path
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, dst_file)
+                count += 1
+        if verbose:
+            print(f"  Merged directory: {src_path.name} -> {dst_path} ({count} files, excluding __init__.py)")
+        return count
+
+    # Non-merge mode: remove destination if it exists
     if dst_path.exists():
         if dst_path.is_dir():
             shutil.rmtree(dst_path)
@@ -92,7 +119,7 @@ def sync_to_target(repo_root: Path, target_dir: Path, verbose: bool = False) -> 
         files_synced += sync_directory(src_path, dst_path, verbose)
 
     # Sync from shared/ subdirectories
-    for src_name, dst_name in SHARED_MAPPINGS:
+    for src_name, dst_name, merge_mode in SHARED_MAPPINGS:
         src_path = shared_dir / src_name
         dst_path = target_dir / dst_name
 
@@ -101,7 +128,7 @@ def sync_to_target(repo_root: Path, target_dir: Path, verbose: bool = False) -> 
                 print(f"  Warning: Source {src_path} does not exist, skipping")
             continue
 
-        files_synced += sync_directory(src_path, dst_path, verbose)
+        files_synced += sync_directory(src_path, dst_path, verbose, merge=merge_mode)
 
     # Sync plugins from root plugins/ to target plugins/
     for src_name, dst_name in PLUGIN_MAPPINGS:
@@ -149,8 +176,9 @@ def main():
         print(f"\nShared directory: {shared_dir}")
         print(f"Plugins directory: {plugins_dir}")
         print(f"\nShared mappings:")
-        for src, dst in SHARED_MAPPINGS:
-            print(f"  shared/{src} -> {dst}")
+        for src, dst, merge in SHARED_MAPPINGS:
+            mode = "(merge)" if merge else "(replace)"
+            print(f"  shared/{src} -> {dst} {mode}")
         print(f"\nPlugin mappings:")
         for src, dst in PLUGIN_MAPPINGS:
             print(f"  plugins/{src} -> plugins/{dst}")
