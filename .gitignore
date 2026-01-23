@@ -176,6 +176,12 @@ CLAUDE_GIT_SAFETY.md
 PROJECT-SUMMARY.md
 ARCHITECTURE.md
 
+# Development documentation - local only, not for public repo
+CHANGELOG*.md
+CHANGES*.md
+RELEASE_MIGRATION_GUIDE.md
+!README.md
+
 # Plugin archives - now tracked for builtin plugin reinstall support
 # plugins/*.zip
 
