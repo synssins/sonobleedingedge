@@ -69,34 +69,31 @@ def get_user_plugins_dir() -> Path:
     return user_dir
 
 
-def get_all_plugin_dirs(include_bundled: bool = False) -> List[Path]:
+def get_all_plugin_dirs(include_bundled: bool = True) -> List[Path]:
     """
     Get all plugin directories to scan.
 
-    By default, only returns user-installed plugins directory.
-    Bundled plugins are NOT loaded unless explicitly requested.
-
-    Users should install plugins from the catalog - bundled plugins
-    in the Docker image are only for reference/development.
+    By default, includes both bundled and user-installed plugins.
+    Bundled plugins (speaker protocols) are auto-enabled on first run.
 
     Args:
-        include_bundled: If True, also include bundled plugins (for development)
+        include_bundled: If True (default), include bundled plugins
 
     Returns:
         List of plugin directory paths
     """
     dirs = []
 
-    # User plugins only by default
-    user_dir = get_user_plugins_dir()
-    if user_dir.exists():
-        dirs.append(user_dir)
-
-    # Only include bundled if explicitly requested (e.g., for development)
+    # Bundled plugins first (shipped with the app)
     if include_bundled:
         bundled_dir = get_bundled_plugins_dir()
-        if bundled_dir.exists() and bundled_dir != user_dir:
+        if bundled_dir.exists():
             dirs.append(bundled_dir)
+
+    # User plugins (can override bundled)
+    user_dir = get_user_plugins_dir()
+    if user_dir.exists() and user_dir not in dirs:
+        dirs.append(user_dir)
 
     return dirs
 
