@@ -234,10 +234,18 @@ class PluginResponse(BaseModel):
     version: str
     description: str
     author: str
+    category: str = ""  # Category for UI grouping (speakers, sources, importers, utilities)
     enabled: bool
+    builtin: bool = False
     settings: dict
     ui_schema: dict
     settings_schema: dict
+    has_api_routes: bool = False
+    has_ha_entities: bool = False
+    # Optional fields for speaker plugins
+    plugin_type: Optional[str] = None
+    speakers: Optional[list] = None
+    capabilities: Optional[dict] = None
 
 
 class PluginActionRequest(BaseModel):

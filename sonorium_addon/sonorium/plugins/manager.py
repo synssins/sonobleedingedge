@@ -358,8 +358,8 @@ class PluginManager:
         """
         Fix plugin categories by checking against the catalog.
 
-        This corrects plugins that were installed before category support
-        was properly implemented.
+        This ensures all plugins have the correct category from the catalog,
+        and updates both the in-memory object and the manifest file.
         """
         try:
             import aiohttp
@@ -376,6 +376,7 @@ class PluginManager:
 
             # Build category lookup from catalog
             category_lookup = {p['id']: p.get('category') for p in catalog.get('plugins', [])}
+            logger.debug(f"Category lookup from catalog: {category_lookup}")
 
             fixed_count = 0
             for plugin_id, plugin in self.plugins.items():
@@ -384,16 +385,14 @@ class PluginManager:
                     logger.debug(f"Plugin {plugin_id} not in catalog, skipping category fix")
                     continue
 
-                # Check if plugin has wrong or missing category
-                current_category = getattr(plugin, 'category', None) or 'utilities'
-                if current_category == catalog_category:
-                    logger.debug(f"Plugin {plugin_id} already has correct category: {catalog_category}")
-                    continue
+                # Get current category value (use repr to see exact value)
+                current_category = getattr(plugin, 'category', None)
+                logger.debug(f"Plugin {plugin_id}: current_category={repr(current_category)}, catalog_category={repr(catalog_category)}")
 
-                logger.info(f"Fixing category for {plugin_id}: '{current_category}' -> '{catalog_category}'")
-
-                # Update the plugin object
+                # ALWAYS set category from catalog to ensure consistency
+                # This fixes issues where category might be set but not persisted correctly
                 plugin.category = catalog_category
+                logger.info(f"Set category for {plugin_id}: {repr(catalog_category)}")
 
                 # Update the manifest file (use plugin's actual directory)
                 manifest_path = plugin.plugin_dir / 'manifest.json'
@@ -402,24 +401,26 @@ class PluginManager:
                     try:
                         with open(manifest_path, 'r') as f:
                             manifest = json.load(f)
-                        manifest['category'] = catalog_category
-                        with open(manifest_path, 'w') as f:
-                            json.dump(manifest, f, indent=2)
-                        fixed_count += 1
-                        logger.info(f"Updated manifest for {plugin_id}")
+
+                        # Check if manifest needs updating
+                        if manifest.get('category') != catalog_category:
+                            manifest['category'] = catalog_category
+                            with open(manifest_path, 'w') as f:
+                                json.dump(manifest, f, indent=2)
+                            fixed_count += 1
+                            logger.info(f"Updated manifest category for {plugin_id}")
+                        else:
+                            logger.debug(f"Manifest for {plugin_id} already has correct category")
                     except Exception as e:
                         logger.warning(f"Could not update manifest for {plugin_id}: {e}")
                 else:
                     logger.warning(f"Manifest not found at {manifest_path}")
                     fixed_count += 1  # Still count as fixed (in-memory)
 
-            if fixed_count > 0:
-                logger.info(f"Fixed categories for {fixed_count} plugin(s)")
-            else:
-                logger.info("No plugin categories needed fixing")
+            logger.info(f"Category sync complete: {len(self.plugins)} plugins, {fixed_count} manifests updated")
 
         except Exception as e:
-            logger.debug(f"Could not fix plugin categories: {e}")
+            logger.warning(f"Could not fix plugin categories: {e}")
 
     async def reload_plugins(self) -> None:
         """Reload all plugins."""
