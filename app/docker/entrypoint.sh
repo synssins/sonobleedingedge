@@ -9,9 +9,9 @@ DATA_DIR="${SONORIUM_DATA_DIR:-/app/data}"
 HOST="${SONORIUM_HOST:-0.0.0.0}"
 PORT="${SONORIUM_PORT:-8008}"
 
-echo "==================================="
-echo "  Sonorium - Ambient Soundscapes"
-echo "==================================="
+echo "╔═══════════════════════════════════════╗"
+echo "║  Sonorium - Ambient Soundscapes       ║"
+echo "╚═══════════════════════════════════════╝"
 echo ""
 echo "Data directory: ${DATA_DIR}"
 echo "Server: http://${HOST}:${PORT}"
@@ -20,6 +20,7 @@ echo ""
 # Create data directories if they don't exist
 mkdir -p "${DATA_DIR}/config"
 mkdir -p "${DATA_DIR}/themes"
+mkdir -p "${DATA_DIR}/plugins"
 
 # Copy bundled themes to data dir if themes dir is empty
 if [ -z "$(ls -A ${DATA_DIR}/themes 2>/dev/null)" ]; then

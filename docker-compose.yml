@@ -1,0 +1,57 @@
+# Sonorium Docker Compose
+#
+# Deploy directly from GitHub:
+#   curl -O https://raw.githubusercontent.com/synssins/sonobleedingedge/main/docker-compose.yml
+#   docker compose up -d
+#
+# Or clone and run:
+#   git clone https://github.com/synssins/sonobleedingedge.git
+#   cd sonobleedingedge
+#   docker compose up -d
+#
+# Access the web UI at: http://localhost:8008
+
+services:
+  sonorium:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sonorium:latest
+    container_name: sonorium
+    restart: unless-stopped
+
+    # Host network for speaker discovery (mDNS, SSDP)
+    # Comment out and use ports: instead if you don't need speaker discovery
+    network_mode: host
+
+    # Alternative: Use bridge network with port mapping
+    # (speaker discovery may not work in this mode)
+    # ports:
+    #   - "8008:8008"
+
+    volumes:
+      # Persistent data (config, user themes, plugins)
+      - sonorium-data:/app/data
+
+      # Optional: Mount your own themes folder
+      # - /path/to/your/themes:/app/data/themes:ro
+
+      # Optional: Mount audio files for custom themes
+      # - /path/to/audio:/app/audio:ro
+
+    environment:
+      - SONORIUM_HOST=0.0.0.0
+      - SONORIUM_PORT=8008
+      - SONORIUM_DATA_DIR=/app/data
+      # - SONORIUM_LOG_LEVEL=info
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8008/api/status')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  sonorium-data:
+    name: sonorium-data
