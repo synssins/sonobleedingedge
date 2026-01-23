@@ -9,6 +9,7 @@ let enabledSpeakers = [];
 let channels = [];
 let unifiedSpeakers = [];  // Speakers from hybrid discovery (HA + direct)
 let selectedTheme = null;
+let platformCapabilities = null;  // Platform capabilities from /api/capabilities
 let selectedSpeakers = {
     floors: [],
     areas: [],
@@ -21,10 +22,76 @@ let currentView = 'sessions';
 // Preset cache for session cards (theme_id -> presets array)
 let sessionPresetsCache = {};
 
+// =============================================================================
+// Platform Capabilities
+// =============================================================================
+
+async function loadCapabilities() {
+    try {
+        platformCapabilities = await api('GET', '/capabilities');
+        console.log('Platform capabilities loaded:', platformCapabilities);
+    } catch (error) {
+        console.warn('Could not load capabilities, using defaults:', error);
+        // Default to standalone behavior (no HA)
+        platformCapabilities = {
+            platform: 'standalone',
+            features: {
+                ha_integration: { enabled: false, detected: false },
+                mqtt: { enabled: false, detected: false },
+                local_audio: { available: false, enabled: false },
+                direct_discovery: true
+            }
+        };
+    }
+}
+
+function updateUIForCapabilities() {
+    if (!platformCapabilities) return;
+
+    const haEnabled = platformCapabilities.features?.ha_integration?.enabled;
+    const localAudioAvailable = platformCapabilities.features?.local_audio?.available;
+
+    // Show/hide HA-specific elements
+    const haElements = document.querySelectorAll('.ha-only');
+    haElements.forEach(el => {
+        el.style.display = haEnabled ? '' : 'none';
+    });
+
+    // Show/hide local audio elements
+    const localAudioElements = document.querySelectorAll('.local-audio-only');
+    localAudioElements.forEach(el => {
+        el.style.display = localAudioAvailable ? '' : 'none';
+    });
+
+    // Update the Refresh from HA button specifically
+    const refreshHABtn = document.getElementById('refresh-ha-btn');
+    if (refreshHABtn) {
+        refreshHABtn.style.display = haEnabled ? '' : 'none';
+    }
+
+    console.log('UI updated for capabilities:', {
+        haEnabled,
+        localAudioAvailable,
+        platform: platformCapabilities.platform
+    });
+}
+
+function isHAEnabled() {
+    return platformCapabilities?.features?.ha_integration?.enabled || false;
+}
+
+function isLocalAudioAvailable() {
+    return platformCapabilities?.features?.local_audio?.available || false;
+}
+
 async function init() {
     console.log('Sonorium init() starting...');
     console.log('BASE_PATH:', BASE_PATH);
     try {
+        // Load platform capabilities FIRST - UI depends on this
+        await loadCapabilities();
+
+        // Then load all other data in parallel
         await Promise.all([
             loadSessions(),
             loadThemes(),
@@ -39,6 +106,9 @@ async function init() {
             loadPlugins()
         ]);
         console.log('Data loaded, rendering...');
+
+        // Update UI based on capabilities (show/hide HA elements)
+        updateUIForCapabilities();
 
         // Restore saved view or default to sessions
         const savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
@@ -3446,7 +3516,11 @@ function renderSettingsSpeakerTree() {
 
     const allSpeakers = getAllSpeakersFlat();
     if (allSpeakers.length === 0) {
-        container.innerHTML = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+        const haEnabled = isHAEnabled();
+        const message = haEnabled
+            ? 'No speakers found. Click "Refresh from HA" or "Scan Network" to discover speakers.'
+            : 'No speakers found. Click "Scan Network" to discover speakers on your network.';
+        container.innerHTML = `<p class="text-muted">${message}</p>`;
         return;
     }
 
@@ -3530,7 +3604,11 @@ function renderSettingsSpeakerTree() {
     }
 
     if (!html) {
-        html = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+        const haEnabled = isHAEnabled();
+        const message = haEnabled
+            ? 'No speakers found. Click "Refresh from HA" or "Scan Network" to discover speakers.'
+            : 'No speakers found. Click "Scan Network" to discover speakers on your network.';
+        html = `<p class="text-muted">${message}</p>`;
     }
 
     container.innerHTML = html;

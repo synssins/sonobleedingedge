@@ -69,8 +69,13 @@ def run_server(host: str = '0.0.0.0', port: int = 8008, open_browser: bool = Tru
     import uvicorn
     from sonorium.config import get_config, get_config_dir, copy_bundled_themes
     from sonorium.app_device import SonoriumApp
-    from sonorium.web_api import create_app, set_plugin_manager
     from sonorium.plugins.manager import PluginManager
+
+    # Initialize the platform runtime context FIRST
+    # This must happen before any code tries to use runtime.paths or runtime.config
+    from sonorium.platform.adapters import create_standalone_runtime
+    create_standalone_runtime()
+    logger.info("Platform runtime context initialized")
 
     config = get_config()
     config_dir = get_config_dir()
@@ -119,11 +124,16 @@ def run_server(host: str = '0.0.0.0', port: int = 8008, open_browser: bool = Tru
         await plugin_manager.initialize()
 
     asyncio.run(init_plugins())
-    set_plugin_manager(plugin_manager)
     logger.info(f'Plugin manager initialized with {len(plugin_manager.plugins)} plugin(s)')
 
-    # Create FastAPI app
-    fastapi_app = create_app(app_instance)
+    # Create FastAPI app with unified API
+    # This combines the legacy web_api.py with new unified settings/capabilities
+    from sonorium.web.unified_api import create_standalone_app
+    fastapi_app = create_standalone_app(
+        app_instance=app_instance,
+        data_dir=config_dir,
+        plugin_manager=plugin_manager,
+    )
 
     # Open browser
     if open_browser:

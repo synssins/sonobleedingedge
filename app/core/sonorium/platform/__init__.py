@@ -195,9 +195,64 @@ class RuntimeContext:
 runtime = RuntimeContext()
 
 
+# Import capabilities and settings modules
+from sonorium.platform.capabilities import (
+    PlatformCapabilities,
+    HACapabilities,
+    MQTTCapabilities,
+    LocalAudioCapabilities,
+    AudioDevice,
+    detect_platform,
+    detect_all_capabilities,
+    get_capabilities,
+    refresh_capabilities,
+    update_capabilities_from_settings,
+)
+
+from sonorium.platform.secure_storage import (
+    SecureStorage,
+    get_secure_storage,
+    initialize_secure_storage,
+)
+
+from sonorium.platform.unified_settings import (
+    UnifiedSettings,
+    UnifiedSettingsManager,
+    HAIntegrationSettings,
+    MQTTSettings,
+    LocalAudioSettings,
+    get_settings_manager,
+    initialize_settings_manager,
+)
+
+
 __all__ = [
+    # Core protocols
     "PathProvider",
     "ConfigProvider",
     "RuntimeContext",
     "runtime",
+    # Capabilities
+    "PlatformCapabilities",
+    "HACapabilities",
+    "MQTTCapabilities",
+    "LocalAudioCapabilities",
+    "AudioDevice",
+    "detect_platform",
+    "detect_all_capabilities",
+    "get_capabilities",
+    "refresh_capabilities",
+    "update_capabilities_from_settings",
+    # Secure storage
+    "SecureStorage",
+    "get_secure_storage",
+    "initialize_secure_storage",
+    # Settings
+    "UnifiedSettings",
+    "UnifiedSettingsManager",
+    "HAIntegrationSettings",
+    "MQTTSettings",
+    "LocalAudioSettings",
+    "get_settings_manager",
+    "initialize_settings_manager",
 ]

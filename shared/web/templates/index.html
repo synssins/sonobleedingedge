@@ -597,7 +597,7 @@ Example:
                     <div class="settings-actions">
                         <button class="btn btn-secondary btn-sm" onclick="enableAllSpeakers()">Enable All</button>
                         <button class="btn btn-secondary btn-sm" onclick="disableAllSpeakers()">Disable All</button>
-                        <button class="btn btn-secondary btn-sm" onclick="refreshSpeakersFromHA()">
+                        <button id="refresh-ha-btn" class="btn btn-secondary btn-sm ha-only" onclick="refreshSpeakersFromHA()" title="Refresh speaker list from Home Assistant">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M23 4v6h-6"/>
                                 <path d="M1 20v-6h6"/>
