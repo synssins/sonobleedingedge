@@ -2078,6 +2078,48 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             'custom_areas': {}
         }
 
+    @fastapi_app.get('/api/speakers/unified')
+    async def get_unified_speakers():
+        """
+        Get unified speaker list from hybrid discovery (HA + direct).
+
+        On standalone without HA configured, returns network-discovered speakers only.
+        When HA is configured, would include HA registry speakers merged with direct discovery.
+        """
+        from sonorium.network_speakers import get_discovered_speakers
+
+        try:
+            # Get directly discovered speakers
+            direct_speakers = get_discovered_speakers()
+
+            # Format speakers for unified response
+            speakers = []
+            for sp in direct_speakers:
+                speakers.append({
+                    'id': sp.get('id', sp.get('name', 'unknown')),
+                    'name': sp.get('name', 'Unknown Speaker'),
+                    'ip_address': sp.get('ip'),
+                    'protocol': sp.get('type', 'unknown'),
+                    'found_by': [sp.get('type', 'direct')],
+                    'available': sp.get('available', True),
+                    'entity_id': None,  # No HA entity in standalone
+                })
+
+            return {
+                'status': 'ok',
+                'speakers': speakers,
+                'total': len(speakers),
+                'ha_enabled': False,  # HA not configured in basic standalone
+            }
+        except Exception as e:
+            logger.error(f"Failed to get unified speakers: {e}")
+            return {
+                'status': 'ok',
+                'speakers': [],
+                'total': 0,
+                'ha_enabled': False,
+            }
+
     @fastapi_app.post('/api/speakers/refresh')
     async def refresh_speakers():
         """Refresh audio device list."""
@@ -2414,6 +2456,15 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     @fastapi_app.post('/api/network-speakers/refresh')
     async def refresh_network_speakers():
         """Scan network for speakers (Chromecast, Sonos, DLNA)."""
+        return await _scan_network_speakers()
+
+    @fastapi_app.post('/api/speakers/scan-network')
+    async def scan_network_speakers():
+        """Scan network for speakers using direct discovery (alias for refresh_network_speakers)."""
+        return await _scan_network_speakers()
+
+    async def _scan_network_speakers():
+        """Internal: Scan network for speakers."""
         from sonorium.network_speakers import discover_network_speakers
 
         try:
@@ -2428,8 +2479,10 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
             return {
                 'status': 'ok',
+                'found': len(speakers),
                 'total_speakers': len(speakers),
                 'counts': counts,
+                'by_protocol': counts,
                 'speakers': speakers
             }
         except Exception as e:
@@ -2747,11 +2800,16 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                     logger.warning(f"Could not update manifest with category: {e}")
 
             # Remove from deleted_builtin_plugins if reinstalling a previously deleted builtin
-            deleted_list = _plugin_manager.state_store.settings.deleted_builtin_plugins
-            if plugin_id in deleted_list:
-                deleted_list.remove(plugin_id)
-                logger.info(f"Removed '{plugin_id}' from deleted builtins list")
-                _plugin_manager.state_store.save()
+            try:
+                from sonorium.platform.unified_settings import get_settings_manager
+                settings_mgr = get_settings_manager()
+                deleted_list = settings_mgr.settings.deleted_builtin_plugins
+                if plugin_id in deleted_list:
+                    deleted_list.remove(plugin_id)
+                    settings_mgr.update({'deleted_builtin_plugins': deleted_list})
+                    logger.info(f"Removed '{plugin_id}' from deleted builtins list")
+            except Exception as e:
+                logger.debug(f"Could not update deleted builtins list: {e}")
 
             await _plugin_manager.reload_plugins()
 
