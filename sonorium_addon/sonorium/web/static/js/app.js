@@ -207,8 +207,92 @@ async function checkForUpdates() {
             updateInfo = result;
             showUpdateNotification(result);
         }
+        // Update the Status page display
+        updateVersionDisplay(result);
     } catch (e) {
         console.error('Failed to check for updates:', e);
+    }
+}
+
+async function manualCheckForUpdates() {
+    const btn = document.getElementById('check-update-btn');
+    const statusIcon = document.getElementById('update-status-icon');
+    const statusText = document.getElementById('update-status-text');
+
+    // Show checking state
+    if (btn) btn.disabled = true;
+    if (statusIcon) {
+        statusIcon.className = 'status-icon status-checking';
+        statusIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 6v6l4 2"/>
+        </svg>`;
+    }
+    if (statusText) statusText.textContent = 'Checking...';
+
+    try {
+        const result = await api('GET', '/update/check');
+        updateVersionDisplay(result);
+
+        if (result && result.update_available) {
+            updateInfo = result;
+            showUpdateNotification(result);
+            showToast(`Update available: v${result.latest_version}`, 'info');
+        } else {
+            showToast('You are running the latest version', 'success');
+        }
+    } catch (e) {
+        console.error('Failed to check for updates:', e);
+        if (statusIcon) {
+            statusIcon.className = 'status-icon status-disconnected';
+            statusIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>`;
+        }
+        if (statusText) statusText.textContent = 'Check failed';
+        showToast('Failed to check for updates', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+function updateVersionDisplay(result) {
+    const currentDisplay = document.getElementById('current-version-display');
+    const latestRow = document.getElementById('latest-version-row');
+    const latestDisplay = document.getElementById('latest-version-display');
+    const statusIcon = document.getElementById('update-status-icon');
+    const statusText = document.getElementById('update-status-text');
+
+    if (result && result.current_version && currentDisplay) {
+        currentDisplay.textContent = `v${result.current_version}`;
+    }
+
+    if (result && result.update_available) {
+        // Update available
+        if (latestRow) latestRow.style.display = '';
+        if (latestDisplay) latestDisplay.textContent = `v${result.latest_version}`;
+        if (statusIcon) {
+            statusIcon.className = 'status-icon status-available';
+            statusIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>`;
+        }
+        if (statusText) statusText.textContent = 'Update available';
+    } else if (result) {
+        // Up to date
+        if (latestRow) latestRow.style.display = 'none';
+        if (statusIcon) {
+            statusIcon.className = 'status-icon status-connected';
+            statusIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>`;
+        }
+        if (statusText) statusText.textContent = 'Up to date';
     }
 }
 

@@ -795,6 +795,44 @@ Example:
                         <div id="status-total-speakers" class="status-value">0</div>
                     </div>
                 </div>
+
+                <!-- Updates Section -->
+                <div class="settings-section" style="margin-top: 1.5rem;">
+                    <div class="settings-group-header">
+                        <h3>Software Updates</h3>
+                        <div class="status-inline" id="update-status-container">
+                            <span id="update-status-icon" class="status-icon status-connected">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                            </span>
+                            <span id="update-status-text" class="status-text">Up to date</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label>Current Version</label>
+                        <div class="setting-value">
+                            <span id="current-version-display">...</span>
+                        </div>
+                    </div>
+                    <div class="setting-item" id="latest-version-row" style="display: none;">
+                        <label>Latest Version</label>
+                        <div class="setting-value">
+                            <span id="latest-version-display">...</span>
+                        </div>
+                    </div>
+                    <div class="settings-actions" style="margin-top: 1rem;">
+                        <button class="btn btn-secondary" onclick="manualCheckForUpdates()" id="check-update-btn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.5rem;">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            Check for Updates
+                        </button>
+                    </div>
+                </div>
+
                 <div class="settings-section" style="margin-top: 1.5rem;">
                     <h3>Channels</h3>
                     <div id="channel-list" class="channel-list">

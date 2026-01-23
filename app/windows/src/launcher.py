@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.0.56"
+APP_VERSION = "0.0.57"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -1057,6 +1057,12 @@ class SettingsDialog(QDialog):
 
         updates_group.setLayout(updates_form)
         updates_layout.addWidget(updates_group)
+
+        # Check Now button
+        check_now_btn = QPushButton("Check for Updates Now")
+        check_now_btn.clicked.connect(self._check_for_updates)
+        updates_layout.addWidget(check_now_btn)
+
         updates_layout.addStretch()
         tabs.addTab(updates_tab, "Updates")
 
@@ -1103,6 +1109,11 @@ class SettingsDialog(QDialog):
         button_layout.addWidget(cancel_btn)
 
         layout.addLayout(button_layout)
+
+    def _check_for_updates(self):
+        """Trigger update check from parent MainWindow."""
+        if self.parent() and hasattr(self.parent(), 'check_for_updates'):
+            self.parent().check_for_updates(silent=False)
 
     def get_config(self) -> dict:
         """Get updated config from dialog."""
@@ -1205,6 +1216,12 @@ class MainWindow(QMainWindow):
         if self.config.get('check_updates_on_startup', True):
             self.logger.info("Scheduling update check")
             QTimer.singleShot(3000, self.check_for_updates)
+
+        # Schedule periodic update checks every 4 hours (silent)
+        self.update_check_timer = QTimer(self)
+        self.update_check_timer.timeout.connect(lambda: self.check_for_updates(silent=True))
+        self.update_check_timer.start(4 * 60 * 60 * 1000)  # 4 hours in milliseconds
+        self.logger.info("Periodic update check scheduled (every 4 hours)")
 
         self.logger.info("MainWindow initialization complete")
 
@@ -1317,6 +1334,10 @@ class MainWindow(QMainWindow):
         settings_btn = QPushButton("Settings")
         settings_btn.clicked.connect(self.show_settings)
         button_layout.addWidget(settings_btn)
+
+        update_btn = QPushButton("Check for Updates")
+        update_btn.clicked.connect(lambda: self.check_for_updates(silent=False))
+        button_layout.addWidget(update_btn)
 
         button_layout.addStretch()
         layout.addLayout(button_layout)
