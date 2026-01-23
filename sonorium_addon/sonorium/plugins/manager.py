@@ -381,19 +381,23 @@ class PluginManager:
             for plugin_id, plugin in self.plugins.items():
                 catalog_category = category_lookup.get(plugin_id)
                 if not catalog_category:
+                    logger.debug(f"Plugin {plugin_id} not in catalog, skipping category fix")
                     continue
 
                 # Check if plugin has wrong or missing category
-                current_category = getattr(plugin, 'category', None)
+                current_category = getattr(plugin, 'category', None) or 'utilities'
                 if current_category == catalog_category:
+                    logger.debug(f"Plugin {plugin_id} already has correct category: {catalog_category}")
                     continue
+
+                logger.info(f"Fixing category for {plugin_id}: '{current_category}' -> '{catalog_category}'")
 
                 # Update the plugin object
                 plugin.category = catalog_category
 
-                # Update the manifest file
-                plugin_dir = self.plugins_dir / plugin_id
-                manifest_path = plugin_dir / 'manifest.json'
+                # Update the manifest file (use plugin's actual directory)
+                manifest_path = plugin.plugin_dir / 'manifest.json'
+                logger.debug(f"Looking for manifest at: {manifest_path}")
                 if manifest_path.exists():
                     try:
                         with open(manifest_path, 'r') as f:
@@ -402,12 +406,17 @@ class PluginManager:
                         with open(manifest_path, 'w') as f:
                             json.dump(manifest, f, indent=2)
                         fixed_count += 1
-                        logger.debug(f"Fixed category for {plugin_id}: {current_category} -> {catalog_category}")
+                        logger.info(f"Updated manifest for {plugin_id}")
                     except Exception as e:
                         logger.warning(f"Could not update manifest for {plugin_id}: {e}")
+                else:
+                    logger.warning(f"Manifest not found at {manifest_path}")
+                    fixed_count += 1  # Still count as fixed (in-memory)
 
             if fixed_count > 0:
                 logger.info(f"Fixed categories for {fixed_count} plugin(s)")
+            else:
+                logger.info("No plugin categories needed fixing")
 
         except Exception as e:
             logger.debug(f"Could not fix plugin categories: {e}")
