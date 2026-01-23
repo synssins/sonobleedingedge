@@ -412,7 +412,7 @@ class PluginManager:
 
                 # ALWAYS set category from catalog to ensure consistency
                 plugin.category = catalog_category
-                logger.info(f"Set category for {plugin_id}: {repr(catalog_category)}")
+                logger.debug(f"Set category for {plugin_id}: {repr(catalog_category)}")
 
                 # Update the manifest file
                 manifest_path = plugin.plugin_dir / 'manifest.json'
@@ -428,7 +428,7 @@ class PluginManager:
                             with open(manifest_path, 'w') as f:
                                 json.dump(manifest, f, indent=2)
                             fixed_count += 1
-                            logger.info(f"Updated manifest category for {plugin_id}")
+                            logger.debug(f"Updated manifest category for {plugin_id}")
                         else:
                             logger.debug(f"Manifest for {plugin_id} already has correct category")
                     except Exception as e:
@@ -437,7 +437,7 @@ class PluginManager:
                     logger.warning(f"Manifest not found at {manifest_path}")
                     fixed_count += 1  # Still count as fixed (in-memory)
 
-            logger.info(f"Category sync complete: {len(self.plugins)} plugins, {fixed_count} manifests updated")
+            logger.debug(f"Category sync complete: {len(self.plugins)} plugins, {fixed_count} manifests updated")
 
         except Exception as e:
             logger.warning(f"Could not fix plugin categories: {e}")

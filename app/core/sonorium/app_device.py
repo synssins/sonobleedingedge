@@ -101,7 +101,7 @@ class SonoriumApp:
                 self.theme_metas[theme_name] = [RecordingMetadata(p) for p in audio_files]
                 theme_def = ThemeDefinition(sonorium=self, name=theme_name)
                 self.themes.append(theme_def)
-                logger.info(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
+                logger.debug(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
 
         if self.themes:
             self.current_theme = self.themes[0].name

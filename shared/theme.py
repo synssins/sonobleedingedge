@@ -95,10 +95,10 @@ class ThemeDefinition:
                 if self._theme_id is None and 'id' in self._metadata:
                     self._theme_id = self._metadata['id']
 
-                # Log what was loaded
+                # Log what was loaded (DEBUG level to reduce noise)
                 track_count = len(self._metadata.get('tracks', {}))
                 preset_count = len(self._metadata.get('presets', {}))
-                logger.info(f'Loaded metadata for theme "{self.name}": {track_count} track settings, {preset_count} presets')
+                logger.debug(f'Loaded metadata for theme "{self.name}": {track_count} track settings, {preset_count} presets')
             except PermissionError as e:
                 logger.error(f'Permission denied reading metadata for {self.name}: {e}')
                 self._metadata = {}

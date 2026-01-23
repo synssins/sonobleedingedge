@@ -1112,10 +1112,20 @@ class NetworkSpeakerDiscovery:
                     elif raop_service and raop_service.port:
                         port = raop_service.port
 
-                    # Determine model from device info (convert to string for JSON serialization)
+                    # Determine model from device info
                     model = None
-                    if device.device_info and device.device_info.model:
-                        model = str(device.device_info.model)
+                    if device.device_info:
+                        # Try to get raw_model which contains the actual device model string
+                        if device.device_info.raw_model:
+                            model = device.device_info.raw_model
+                        # Fallback to model enum name if not Unknown
+                        elif device.device_info.model:
+                            model_enum = device.device_info.model
+                            # Use the enum name, but skip if it's "Unknown"
+                            if hasattr(model_enum, 'name') and model_enum.name != 'Unknown':
+                                model = model_enum.name
+                            elif hasattr(model_enum, 'value') and model_enum.value and model_enum.value != 'unknown':
+                                model = str(model_enum.value)
 
                     speaker = NetworkSpeaker(
                         id=speaker_id,

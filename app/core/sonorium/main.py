@@ -124,7 +124,6 @@ def run_server(host: str = '0.0.0.0', port: int = 8008, open_browser: bool = Tru
         await plugin_manager.initialize()
 
     asyncio.run(init_plugins())
-    logger.info(f'Plugin manager initialized with {len(plugin_manager.plugins)} plugin(s)')
 
     # Create FastAPI app with unified API
     # This combines the legacy web_api.py with new unified settings/capabilities

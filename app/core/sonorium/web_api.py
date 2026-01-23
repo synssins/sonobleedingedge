@@ -7,6 +7,7 @@ adapted for standalone desktop use with local audio output.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime
