@@ -102,6 +102,9 @@ class PluginManager:
                 logger.debug(f"Auto-enabling speaker plugin: {plugin_id}")
                 await self.enable_plugin(plugin_id)
 
+        # Auto-install platform default plugins on first run
+        await self._install_platform_defaults()
+
         self._initialized = True
         logger.info(f"Plugin manager initialized with {len(self.plugins)} plugin(s)")
 
@@ -200,6 +203,140 @@ class PluginManager:
             except Exception:
                 pass
             return None
+
+    async def _install_platform_defaults(self) -> None:
+        """
+        Install platform default plugins on first run.
+
+        Checks the plugins_initialized flag in state/config.
+        If False, fetches the catalog and installs default plugins for the platform.
+        """
+        # Check if already initialized
+        if hasattr(self.config, 'settings'):
+            # StateStore (HA addon)
+            settings = self.config.settings
+        elif hasattr(self.config, 'plugins_initialized'):
+            # Direct config object
+            settings = self.config
+        else:
+            logger.debug("Cannot determine plugins_initialized state, skipping auto-install")
+            return
+
+        if getattr(settings, 'plugins_initialized', False):
+            logger.debug("Plugins already initialized, skipping auto-install")
+            return
+
+        logger.info("First run detected, installing platform default plugins...")
+
+        try:
+            import aiohttp
+            import zipfile
+            import io
+            import shutil
+
+            # Fetch catalog
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+            async with aiohttp.ClientSession() as session:
+                async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"Failed to fetch plugin catalog: HTTP {resp.status}")
+                        return
+                    catalog = await resp.json(content_type=None)
+
+            # Get platform defaults (default to ha_addon)
+            platform = "ha_addon"  # TODO: detect platform properly
+            platform_defaults = catalog.get('platform_defaults', {})
+            default_plugins = platform_defaults.get(platform, [])
+
+            if not default_plugins:
+                logger.info(f"No default plugins defined for platform: {platform}")
+                settings.plugins_initialized = True
+                if hasattr(self.config, 'save'):
+                    self.config.save()
+                return
+
+            logger.info(f"Installing {len(default_plugins)} default plugins for {platform}: {default_plugins}")
+
+            # Build plugin info lookup
+            plugin_lookup = {p['id']: p for p in catalog.get('plugins', [])}
+
+            installed_count = 0
+            for plugin_id in default_plugins:
+                # Skip if already installed
+                if plugin_id in self.plugins:
+                    logger.debug(f"Plugin {plugin_id} already installed, skipping")
+                    continue
+
+                plugin_info = plugin_lookup.get(plugin_id)
+                if not plugin_info:
+                    logger.warning(f"Plugin {plugin_id} not found in catalog, skipping")
+                    continue
+
+                zip_filename = plugin_info.get('zip_file')
+                if not zip_filename:
+                    logger.warning(f"Plugin {plugin_id} has no zip_file, skipping")
+                    continue
+
+                # Download and install
+                zip_url = f'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/{zip_filename}'
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                            if resp.status != 200:
+                                logger.warning(f"Failed to download {plugin_id}: HTTP {resp.status}")
+                                continue
+                            content = await resp.read()
+
+                    # Extract to plugins directory
+                    zip_buffer = io.BytesIO(content)
+                    with zipfile.ZipFile(zip_buffer, 'r') as zf:
+                        file_list = zf.namelist()
+                        plugin_py_paths = [f for f in file_list if f.endswith('plugin.py')]
+                        if not plugin_py_paths:
+                            logger.warning(f"No plugin.py found in {plugin_id} ZIP")
+                            continue
+
+                        plugin_py = plugin_py_paths[0]
+                        plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
+                        target_dir = self.plugins_dir / plugin_id
+
+                        if target_dir.exists():
+                            shutil.rmtree(target_dir)
+
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        for member in zf.namelist():
+                            if plugin_dir_name and member.startswith(plugin_dir_name + '/'):
+                                target_path = target_dir / member[len(plugin_dir_name) + 1:]
+                            elif plugin_dir_name and member == plugin_dir_name:
+                                continue
+                            else:
+                                target_path = target_dir / member
+
+                            if member.endswith('/'):
+                                target_path.mkdir(parents=True, exist_ok=True)
+                            else:
+                                target_path.parent.mkdir(parents=True, exist_ok=True)
+                                with zf.open(member) as src, open(target_path, 'wb') as dst:
+                                    dst.write(src.read())
+
+                    # Load the newly installed plugin
+                    await self._load_plugin(target_dir)
+                    installed_count += 1
+                    logger.info(f"Installed default plugin: {plugin_id}")
+
+                except Exception as e:
+                    logger.error(f"Failed to install default plugin {plugin_id}: {e}")
+                    continue
+
+            logger.info(f"Installed {installed_count} default plugins")
+
+        except Exception as e:
+            logger.error(f"Failed to install platform defaults: {e}")
+
+        # Mark as initialized regardless of success (don't retry on every startup)
+        settings.plugins_initialized = True
+        if hasattr(self.config, 'save'):
+            self.config.save()
 
     async def reload_plugins(self) -> None:
         """Reload all plugins."""

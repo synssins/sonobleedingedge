@@ -1,6 +1,11 @@
 {
   "version": 1,
   "updated": "2026-01-22",
+  "platform_defaults": {
+    "ha_addon": ["sonos", "chromecast", "dlna", "airplay", "linkplay", "heos"],
+    "windows": ["sonos", "chromecast", "dlna", "airplay"],
+    "docker": ["sonos", "chromecast", "dlna", "airplay", "linkplay", "heos"]
+  },
   "plugins": [
     {
       "id": "airplay",

@@ -2648,6 +2648,28 @@ body {
     letter-spacing: 0.5px;
 }
 
+/* Plugin update available badge */
+.plugin-update-badge {
+    font-size: 0.7rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(255, 152, 0, 0.2);
+    color: #ffb74d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    animation: pulse-update 2s infinite;
+}
+
+@keyframes pulse-update {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Plugin card with update available */
+.plugin-card.has-update {
+    border-color: rgba(255, 152, 0, 0.5);
+}
+
 /* Danger button */
 .btn-danger {
     background: rgba(239, 83, 80, 0.2);

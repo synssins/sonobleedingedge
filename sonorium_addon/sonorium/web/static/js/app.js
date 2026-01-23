@@ -4268,14 +4268,23 @@ function renderPluginsView() {
 
     container.innerHTML = html;
 
-    // Load catalog if on browse tab and not loaded
-    if (activePluginsTab === 'browse' && !pluginCatalog) {
+    // Load catalog for update info (needed for both tabs)
+    if (!pluginCatalog) {
         loadPluginCatalog();
     }
 }
 
-function switchPluginsTab(tab) {
+async function switchPluginsTab(tab) {
     activePluginsTab = tab;
+    // Load catalog data for update info (needed for both tabs)
+    if (!pluginCatalog) {
+        try {
+            const response = await api('GET', '/plugins/catalog');
+            pluginCatalog = response;
+        } catch (e) {
+            console.error('Failed to load catalog:', e);
+        }
+    }
     renderPluginsView();
 }
 
@@ -4436,6 +4445,31 @@ async function installFromCatalog(pluginId) {
     }
 }
 
+async function updatePlugin(pluginId) {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+
+    try {
+        const result = await api('POST', `/plugins/${pluginId}/update`);
+        if (result.updated) {
+            showToast(`${result.name || pluginId} updated to v${result.new_version}`, 'success');
+        } else {
+            showToast(result.message || 'Already at latest version', 'info');
+        }
+
+        // Refresh plugins list and catalog
+        await loadPlugins();
+        pluginCatalog = null;  // Force refresh
+        await loadPluginCatalog();
+    } catch (error) {
+        showToast(`Failed to update: ${error.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
 function renderInstalledPlugins() {
     // Upload section at the top
     let html = `
@@ -4538,8 +4572,19 @@ function renderInstalledPlugins() {
             const category = plugin.category || 'utilities';
             const catInfo = CATEGORY_INFO[category] || { name: category, icon: '📁' };
 
+            // Check for update availability from catalog
+            let hasUpdate = false;
+            let latestVersion = null;
+            if (pluginCatalog && pluginCatalog.plugins) {
+                const catalogPlugin = pluginCatalog.plugins.find(p => p.id === plugin.id);
+                if (catalogPlugin && catalogPlugin.update_available) {
+                    hasUpdate = true;
+                    latestVersion = catalogPlugin.version;
+                }
+            }
+
             html += `
-                <div class="plugin-card ${statusClass}">
+                <div class="plugin-card ${statusClass} ${hasUpdate ? 'has-update' : ''}">
                     <div class="plugin-header">
                         <div class="plugin-info">
                             <h4>${escapeHtml(plugin.name)}</h4>
@@ -4547,8 +4592,16 @@ function renderInstalledPlugins() {
                             <span class="plugin-category">${escapeHtml(category)}</span>
                             <span class="plugin-status ${statusClass}">${statusText}</span>
                             ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
+                            ${hasUpdate ? `<span class="plugin-update-badge" title="Update to v${latestVersion}">Update Available</span>` : ''}
                         </div>
                         <div class="plugin-actions">
+                            ${hasUpdate ? `
+                            <button class="btn btn-sm btn-primary"
+                                    onclick="updatePlugin('${plugin.id}')"
+                                    title="Update to v${latestVersion}">
+                                Update
+                            </button>
+                            ` : ''}
                             ${plugin.settings_schema && Object.keys(plugin.settings_schema).length > 0 ? `
                             <button class="btn btn-sm btn-outline"
                                     onclick="openPluginSettings('${plugin.id}')"

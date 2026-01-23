@@ -1841,8 +1841,8 @@ def create_api_router(
 
                 plugin_py = plugin_py_paths[0]
                 plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
-                target_name = plugin_dir_name.split('/')[0] if plugin_dir_name else plugin_id
-                target_dir = plugin_manager.plugins_dir / target_name
+                # Use plugin_id directly as target directory name (not zip path structure)
+                target_dir = plugin_manager.plugins_dir / plugin_id
 
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
@@ -1906,6 +1906,119 @@ def create_api_router(
         except Exception as e:
             logger.error(f'Error installing plugin from catalog: {e}')
             raise HTTPException(status_code=500, detail=f'Failed to install plugin: {e}')
+
+    @router.post("/plugins/{plugin_id}/update")
+    async def update_plugin(plugin_id: str):
+        """Update an installed plugin to the latest version from catalog."""
+        import aiohttp
+        import zipfile
+        import io
+        import shutil
+
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail='Plugin system not initialized')
+
+        # Check if plugin is installed
+        installed_plugin = plugin_manager.get_plugin(plugin_id)
+        if not installed_plugin:
+            raise HTTPException(status_code=404, detail=f'Plugin "{plugin_id}" is not installed')
+
+        # Fetch catalog to get latest version
+        catalog_url = 'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/catalog.json'
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail='Failed to fetch catalog')
+                    catalog = await resp.json(content_type=None)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: {e}')
+
+        # Find plugin in catalog
+        plugin_info = None
+        for p in catalog.get('plugins', []):
+            if p.get('id') == plugin_id:
+                plugin_info = p
+                break
+
+        if not plugin_info:
+            raise HTTPException(status_code=404, detail=f'Plugin "{plugin_id}" not found in catalog')
+
+        # Check if update is available
+        catalog_version = plugin_info.get('version', '0.0.0')
+        installed_version = installed_plugin.version or '0.0.0'
+        if catalog_version == installed_version:
+            return {
+                'status': 'ok',
+                'plugin_id': plugin_id,
+                'message': f'Plugin "{plugin_id}" is already at the latest version ({installed_version})',
+                'updated': False
+            }
+
+        # Download and install update
+        zip_filename = plugin_info.get('zip_file')
+        if not zip_filename:
+            raise HTTPException(status_code=500, detail='Plugin has no zip_file specified')
+
+        zip_url = f'https://raw.githubusercontent.com/synssins/sonobleedingedge/main/plugins/{zip_filename}'
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=502, detail=f'Failed to download plugin: HTTP {resp.status}')
+                    content = await resp.read()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f'Failed to download plugin: {e}')
+
+        # Install update
+        try:
+            zip_buffer = io.BytesIO(content)
+            with zipfile.ZipFile(zip_buffer, 'r') as zf:
+                file_list = zf.namelist()
+                plugin_py_paths = [f for f in file_list if f.endswith('plugin.py')]
+                if not plugin_py_paths:
+                    raise HTTPException(status_code=400, detail='No plugin.py found in ZIP')
+
+                plugin_py = plugin_py_paths[0]
+                plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
+                target_dir = plugin_manager.plugins_dir / plugin_id
+
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for member in zf.namelist():
+                    if plugin_dir_name and member.startswith(plugin_dir_name + '/'):
+                        target_path = target_dir / member[len(plugin_dir_name) + 1:]
+                    elif plugin_dir_name and member == plugin_dir_name:
+                        continue
+                    else:
+                        target_path = target_dir / member
+
+                    if member.endswith('/'):
+                        target_path.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target_path.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, open(target_path, 'wb') as dst:
+                            dst.write(src.read())
+
+            await plugin_manager.reload_plugins()
+
+            return {
+                'status': 'ok',
+                'plugin_id': plugin_id,
+                'name': plugin_info.get('name', plugin_id),
+                'old_version': installed_version,
+                'new_version': catalog_version,
+                'message': f'Plugin "{plugin_info.get("name", plugin_id)}" updated from {installed_version} to {catalog_version}',
+                'updated': True
+            }
+
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail='Invalid ZIP file from catalog')
+        except Exception as e:
+            logger.error(f'Error updating plugin: {e}')
+            raise HTTPException(status_code=500, detail=f'Failed to update plugin: {e}')
 
     # --- Individual Plugin Routes ---
 

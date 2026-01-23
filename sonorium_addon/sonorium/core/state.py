@@ -144,6 +144,10 @@ class SonoriumSettings:
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)
 
+    # Platform default plugins initialization flag
+    # When False, auto-install of platform default plugins will run on startup
+    plugins_initialized: bool = False
+
     def to_dict(self) -> dict:
         return asdict(self)
     

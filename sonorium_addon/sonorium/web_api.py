@@ -2714,12 +2714,8 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                 plugin_py = plugin_py_paths[0]
                 plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
 
-                if plugin_dir_name:
-                    target_name = plugin_dir_name.split('/')[0]
-                else:
-                    target_name = plugin_id
-
-                target_dir = _plugin_manager.plugins_dir / target_name
+                # Use plugin_id directly as target directory name (not zip path structure)
+                target_dir = _plugin_manager.plugins_dir / plugin_id
 
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
