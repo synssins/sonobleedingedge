@@ -23,14 +23,21 @@ SHARED_MAPPINGS = [
     ("plugins", "plugins", False),    # Plugin system (base.py, speaker_base.py, etc.)
     ("platform", "platform", False),  # Platform adapters (PathProvider, ConfigProvider)
     ("models", "models", False),      # Platform-agnostic data models (UnifiedSpeaker, etc.)
+    ("web", "web", True),             # Web UI - MERGE to preserve platform-specific API files
     # Future extractions:
     ("modules", "modules", False),    # Optional features (recording, etc.)
 ]
 
-# Individual core files that sync to the package root (utils.py for backward compat)
-CORE_FILES = [
-    # (source file in shared/core/, destination filename)
-    ("utils.py", "utils.py"),         # Shared utilities (also in core/, but keep at root for imports)
+# Individual files at shared/ root that sync to package root
+# These are imported as sonorium.xxx (not sonorium.core.xxx)
+ROOT_FILES = [
+    "utils.py",           # Shared utilities
+    "obs.py",             # Logging/observability
+    "recording.py",       # Audio recording/mixing engine
+    "theme.py",           # Theme management
+    "track.py",           # Track/layer handling
+    "network_speakers.py",  # Network speaker discovery
+    "streaming.py",       # Streaming to network speakers
 ]
 
 # Sync from root plugins/ directory (actual plugin packages)
@@ -106,14 +113,14 @@ def sync_to_target(repo_root: Path, target_dir: Path, verbose: bool = False) -> 
     plugins_dir = repo_root / "plugins"
     core_dir = shared_dir / "core"
 
-    # Sync core files (individual files to package root)
-    for src_name, dst_name in CORE_FILES:
-        src_path = core_dir / src_name
-        dst_path = target_dir / dst_name
+    # Sync root-level files (imported as sonorium.xxx)
+    for filename in ROOT_FILES:
+        src_path = shared_dir / filename
+        dst_path = target_dir / filename
 
         if not src_path.exists():
             if verbose:
-                print(f"  Warning: Core file {src_path} does not exist, skipping")
+                print(f"  Warning: Root file {src_path} does not exist, skipping")
             continue
 
         files_synced += sync_directory(src_path, dst_path, verbose)

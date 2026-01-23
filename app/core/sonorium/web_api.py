@@ -694,8 +694,8 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         )
 
     # Serve static files (web UI)
-    # Web folder is at app/core/web/, this file is at app/core/sonorium/
-    web_dir = Path(__file__).parent.parent / 'web'
+    # Web folder is inside sonorium package (synced from shared/web/)
+    web_dir = Path(__file__).parent / 'web'
     templates_dir = web_dir / 'templates'
 
     if (web_dir / 'static').exists():

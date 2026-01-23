@@ -7,6 +7,7 @@ let speakerHierarchy = null;
 let speakerGroups = [];
 let enabledSpeakers = [];
 let channels = [];
+let unifiedSpeakers = [];  // Speakers from hybrid discovery (HA + direct)
 let selectedTheme = null;
 let selectedSpeakers = {
     floors: [],
@@ -31,13 +32,38 @@ async function init() {
             loadSpeakerHierarchy(),
             loadSpeakerGroups(),
             loadEnabledSpeakers(),
+            loadUnifiedSpeakers(),  // Load unified speakers from hybrid discovery
             loadChannels(),
             loadAudioSettings(),
             loadVersion(),
             loadPlugins()
         ]);
         console.log('Data loaded, rendering...');
+
+        // Restore saved view or default to sessions
+        const savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
+
+        // Always render sessions first (needed for session cards)
         renderSessions();
+
+        // Then switch to saved view (showView handles all rendering and UI updates)
+        if (savedView !== 'sessions') {
+            showView(savedView);
+        }
+
+        // Ensure Settings menu is expanded when on a settings page (backup for showView)
+        if (savedView.startsWith('settings')) {
+            const settingsSection = document.getElementById('settings-nav-section');
+            if (settingsSection) {
+                settingsSection.classList.add('expanded');
+                const header = settingsSection.querySelector('.nav-section-header');
+                if (header) {
+                    header.classList.add('expanded');
+                    header.classList.add('active');
+                }
+            }
+        }
+
         updatePlayingBadge();
 
         // Start heartbeat to track browser connection
@@ -305,11 +331,21 @@ async function refreshThemes() {
 }
 
 async function loadSpeakerHierarchy() {
-    speakerHierarchy = await api('GET', '/speakers/hierarchy');
+    try {
+        speakerHierarchy = await api('GET', '/speakers/hierarchy');
+    } catch (error) {
+        console.error('Failed to load speaker hierarchy:', error);
+        speakerHierarchy = { floors: [], areas: [], speakers: [], enabled_speakers: [] };
+    }
 }
 
 async function loadSpeakerGroups() {
-    speakerGroups = await api('GET', '/groups');
+    try {
+        speakerGroups = await api('GET', '/groups');
+    } catch (error) {
+        console.error('Failed to load speaker groups:', error);
+        speakerGroups = [];
+    }
 }
 
 async function loadEnabledSpeakers() {
@@ -334,6 +370,8 @@ async function loadChannels() {
 // View Navigation
 function showView(viewName) {
     currentView = viewName;
+    // Persist view selection across page refreshes
+    localStorage.setItem('sonorium_currentView', viewName);
 
     // Update nav items - clear all active states
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -355,6 +393,40 @@ function showView(viewName) {
             const header = parentSection.querySelector('.nav-section-header');
             if (header) header.classList.add('active');
         }
+    }
+
+    // Keep Settings menu expanded when on any settings page
+    const settingsSection = document.getElementById('settings-nav-section');
+    if (settingsSection) {
+        if (viewName.startsWith('settings')) {
+            settingsSection.classList.add('expanded');
+            const header = settingsSection.querySelector('.nav-section-header');
+            if (header) {
+                header.classList.add('expanded');
+                header.classList.add('active');
+            }
+            // Set active state on the correct sub-item
+            const subItems = settingsSection.querySelectorAll('.nav-sub-item');
+            subItems.forEach(item => {
+                if (item.getAttribute('onclick')?.includes(`'${viewName}'`)) {
+                    item.classList.add('active');
+                }
+            });
+        } else {
+            // Collapse settings menu when not on a settings page
+            settingsSection.classList.remove('expanded');
+            const header = settingsSection.querySelector('.nav-section-header');
+            if (header) header.classList.remove('expanded');
+        }
+    }
+
+    // Set active state on nav items when called without event (e.g., page load)
+    if (!event || !event.currentTarget) {
+        document.querySelectorAll('.nav-item').forEach(item => {
+            if (item.getAttribute('onclick')?.includes(`'${viewName}'`)) {
+                item.classList.add('active');
+            }
+        });
     }
 
     // Show/hide views
@@ -429,8 +501,7 @@ function showView(viewName) {
     }
     if (viewName === 'settings-audio') renderAudioSettings();
     if (viewName === 'settings-speakers') {
-        loadLocalAudioDevices();
-        loadNetworkSpeakers();
+        renderSettingsSpeakerTree();
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
@@ -840,12 +911,19 @@ async function updateSessionVolume(sessionId, volume) {
 
 function updateSessionVolumeDisplay(sessionId, value) {
     // Update the volume display span in real-time while dragging
-    const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+    // Use CSS.escape for safe attribute selector with any session ID format
+    const escapedId = CSS.escape(sessionId);
+    const card = document.querySelector(`.session-card[data-session-id="${escapedId}"]`);
     if (card) {
         const valueSpan = card.querySelector('.volume-value');
         if (valueSpan) {
             valueSpan.textContent = `${value}%`;
         }
+    }
+    // Also update in session list if visible (for consistency)
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+        session.volume = parseInt(value);
     }
 }
 
@@ -1227,7 +1305,13 @@ let selectedSpeakerGroupId = null;
 
 function renderSpeakerGroupSelect() {
     const select = document.getElementById('session-speaker-group');
+    const groupField = document.getElementById('speaker-group-field');
     if (!select) return;
+
+    // Only show speaker group dropdown if groups exist
+    if (groupField) {
+        groupField.style.display = speakerGroups.length > 0 ? 'block' : 'none';
+    }
 
     // Build options
     let html = '<option value="">-- Select manually below --</option>';
@@ -1311,6 +1395,7 @@ document.addEventListener('click', function(event) {
 // Speakers View
 function renderSpeakersList() {
     const container = document.getElementById('speaker-list-content');
+    if (!container) return; // Guard against missing element
     if (!speakerHierarchy) {
         container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
         return;
@@ -1322,7 +1407,79 @@ function renderSpeakersList() {
         return;
     }
 
-    container.innerHTML = allSpeakers.map(speaker => `
+    let html = '';
+
+    // Render floors with areas and speakers
+    for (const floor of speakerHierarchy.floors || []) {
+        if (floor.areas && floor.areas.length > 0) {
+            html += `
+                <div class="speaker-group">
+                    <div class="speaker-group-header">
+                        <span class="speaker-group-icon">🏢</span>
+                        <span class="speaker-group-name">${escapeHtml(floor.name)}</span>
+                        <span class="speaker-group-count">${floor.areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0)} speaker${floor.areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0) !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="speaker-group-content">
+                        ${floor.areas.map(area => renderAreaSpeakers(area)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Render unassigned areas
+    for (const area of speakerHierarchy.unassigned_areas || []) {
+        html += `
+            <div class="speaker-group">
+                <div class="speaker-group-header">
+                    <span class="speaker-group-icon">🏠</span>
+                    <span class="speaker-group-name">${escapeHtml(area.name)}</span>
+                    <span class="speaker-group-count">${area.speakers?.length || 0} speaker${area.speakers?.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="speaker-group-content">
+                    ${(area.speakers || []).map(speaker => renderSpeakerItem(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Render unassigned speakers
+    if (speakerHierarchy.unassigned_speakers && speakerHierarchy.unassigned_speakers.length > 0) {
+        html += `
+            <div class="speaker-group">
+                <div class="speaker-group-header">
+                    <span class="speaker-group-icon">📦</span>
+                    <span class="speaker-group-name">Unassigned Speakers</span>
+                    <span class="speaker-group-count">${speakerHierarchy.unassigned_speakers.length} speaker${speakerHierarchy.unassigned_speakers.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="speaker-group-content">
+                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSpeakerItem(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+function renderAreaSpeakers(area) {
+    if (!area.speakers || area.speakers.length === 0) return '';
+
+    return `
+        <div class="speaker-subgroup">
+            <div class="speaker-subgroup-header">
+                <span class="speaker-subgroup-icon">🏠</span>
+                <span class="speaker-subgroup-name">${escapeHtml(area.name)}</span>
+            </div>
+            <div class="speaker-subgroup-content">
+                ${area.speakers.map(speaker => renderSpeakerItem(speaker)).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderSpeakerItem(speaker) {
+    return `
         <div class="speaker-list-item">
             <div class="speaker-list-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1333,10 +1490,9 @@ function renderSpeakersList() {
             </div>
             <div class="speaker-list-info">
                 <div class="speaker-list-name">${escapeHtml(speaker.name)}</div>
-                <div class="speaker-list-area">${speaker.area || 'Unassigned'}</div>
             </div>
         </div>
-    `).join('');
+    `;
 }
 
 function getAllSpeakersFlat() {
@@ -2542,19 +2698,31 @@ function getSelectedEditCategories() {
 
 async function saveThemeMetadata() {
     const themeId = document.getElementById('theme-edit-id').value;
+    const newName = document.getElementById('theme-edit-name').value.trim();
     const description = document.getElementById('theme-edit-description').value.trim();
     const icon = document.getElementById('theme-edit-icon').value.trim();
     const selectedCategories = getSelectedEditCategories();
 
+    if (!newName) {
+        showToast('Please enter a theme name', 'warning');
+        return;
+    }
+
     try {
+        // Check if name changed and rename if needed
+        const theme = themes.find(t => t.id === themeId);
+        if (theme && theme.name !== newName) {
+            await api('PUT', `/themes/${themeId}/rename`, { name: newName });
+        }
+
         // Save description and icon
         await api('PUT', `/themes/${themeId}/metadata`, { description, icon });
         // Save categories
         await api('POST', `/themes/${themeId}/categories`, { categories: selectedCategories });
 
         // Update local state
-        const theme = themes.find(t => t.id === themeId);
         if (theme) {
+            theme.name = newName;
             theme.description = description;
             theme.icon = icon || null;  // Store null if empty (for auto-detect)
             theme.categories = selectedCategories;
@@ -2941,9 +3109,9 @@ async function loadAudioSettings() {
         const result = await api('GET', '/settings');
         if (result && !result.error) {
             audioSettings = {
-                crossfade_duration: result.crossfade_duration || 3.0,
-                default_volume: result.default_volume || 60,
-                master_gain: result.master_gain || 60
+                crossfade_duration: result.crossfade_duration ?? 3.0,
+                default_volume: result.default_volume ?? 60,
+                master_gain: result.master_gain ?? 60
             };
             applyAudioSettingsToUI();
         }
@@ -3266,25 +3434,345 @@ async function stopNetworkSpeaker(speakerId, pluginId) {
     }
 }
 
-// Legacy functions (kept for compatibility but not used in standalone)
+// Settings speaker tree with floor/area hierarchy
 function renderSettingsSpeakerTree() {
-    // No longer used in standalone - replaced by local audio devices
+    const container = document.getElementById('settings-speaker-tree');
+    if (!container) return;
+
+    if (!speakerHierarchy) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading speakers...</div>';
+        return;
+    }
+
+    const allSpeakers = getAllSpeakersFlat();
+    if (allSpeakers.length === 0) {
+        container.innerHTML = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+        return;
+    }
+
+    // Get enabled speakers list (empty = all enabled for backwards compat)
+    const isAllEnabled = !enabledSpeakers || enabledSpeakers.length === 0;
+
+    let html = '';
+
+    // Render floors with their areas and speakers
+    for (const floor of speakerHierarchy.floors || []) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    </svg>
+                    <span>${escapeHtml(floor.name)}</span>
+                </div>
+                <div class="settings-areas">
+                    ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Unassigned areas (areas without a floor)
+    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    </svg>
+                    <span>Other Areas</span>
+                </div>
+                <div class="settings-areas">
+                    ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Unassigned speakers (speakers without an area)
+    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>Unassigned</span>
+                </div>
+                <div class="settings-speakers" style="margin-left: 1.5rem;">
+                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Network-discovered speakers (found by plugins but not in HA)
+    const directOnlySpeakers = (unifiedSpeakers || []).filter(s => !s.entity_id);
+    if (directOnlySpeakers.length > 0) {
+        html += `
+            <div class="settings-floor network-discovered">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    <span>Network Discovered</span>
+                    <span class="badge">${directOnlySpeakers.length}</span>
+                </div>
+                <div class="settings-speakers" style="margin-left: 1.5rem;">
+                    ${directOnlySpeakers.map(speaker => renderDirectOnlySpeaker(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (!html) {
+        html = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+    }
+
+    container.innerHTML = html;
+}
+
+function renderDirectOnlySpeaker(speaker) {
+    // Direct-only speakers have IP and protocol but no HA entity
+    const ip = speaker.ip_address || '';
+    const protocol = speaker.protocol || (speaker.found_by && speaker.found_by[0]) || 'unknown';
+    const model = speaker.model || '';
+
+    // Found by badges
+    let foundByBadges = '';
+    if (speaker.found_by && speaker.found_by.length > 0) {
+        foundByBadges = `<div class="speaker-found-by">${speaker.found_by.map(source =>
+            `<span class="found-by-badge found-by-${source}">${source.toUpperCase()}</span>`
+        ).join('')}</div>`;
+    }
+
+    return `
+        <div class="settings-speaker direct-only">
+            <div class="direct-only-indicator" title="Not in Home Assistant">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="2" y1="12" x2="22" y2="12"/>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                </svg>
+            </div>
+            <div class="settings-speaker-info">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                    <circle cx="12" cy="14" r="4"/>
+                    <line x1="12" y1="6" x2="12.01" y2="6"/>
+                </svg>
+                <span>${escapeHtml(speaker.name)}</span>
+                ${ip ? `<span class="speaker-ip">${escapeHtml(ip)}</span>` : ''}
+                ${model ? `<span class="speaker-model">${escapeHtml(model)}</span>` : ''}
+                ${foundByBadges}
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsArea(area, isAllEnabled) {
+    return `
+        <div class="settings-area">
+            <div class="settings-area-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                </svg>
+                <span>${escapeHtml(area.name)}</span>
+            </div>
+            <div class="settings-speakers">
+                ${(area.speakers || []).map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsSpeaker(speaker, isAllEnabled) {
+    const isEnabled = isAllEnabled || (enabledSpeakers || []).includes(speaker.entity_id);
+
+    // Find unified speaker data for IP and "Found By" badges
+    let unified = null;
+    if (unifiedSpeakers && unifiedSpeakers.length > 0) {
+        unified = unifiedSpeakers.find(s => s.entity_id === speaker.entity_id);
+    }
+
+    // Use IP from unified speaker if HA speaker doesn't have it (e.g., Chromecast)
+    const ip = speaker.ip_address || (unified && unified.ip_address);
+    const ipDisplay = ip ? `<span class="speaker-ip">${escapeHtml(ip)}</span>` : '';
+
+    // Found by badges
+    let foundByBadges = '';
+    if (unified && unified.found_by && unified.found_by.length > 0) {
+        foundByBadges = `<div class="speaker-found-by">${unified.found_by.map(source =>
+            `<span class="found-by-badge found-by-${source}">${source.toUpperCase()}</span>`
+        ).join('')}</div>`;
+    }
+
+    return `
+        <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
+            <label class="toggle-switch">
+                <input type="checkbox" ${isEnabled ? 'checked' : ''}
+                       onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
+            <div class="settings-speaker-info">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                    <circle cx="12" cy="14" r="4"/>
+                    <line x1="12" y1="6" x2="12.01" y2="6"/>
+                </svg>
+                <span>${escapeHtml(speaker.name)}</span>
+                ${ipDisplay}
+                ${foundByBadges}
+            </div>
+        </div>
+    `;
 }
 
 async function toggleSpeakerEnabled(entityId, enabled) {
-    // No-op for standalone
+    try {
+        const endpoint = enabled ? '/settings/speakers/enable' : '/settings/speakers/disable';
+        await api('POST', endpoint, { entity_id: entityId });
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
 }
 
 async function enableAllSpeakers() {
-    // No-op for standalone
+    try {
+        await api('POST', '/settings/speakers/enable-all');
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
+        showToast('All speakers enabled', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 async function disableAllSpeakers() {
-    // No-op for standalone
+    try {
+        await api('POST', '/settings/speakers/disable-all');
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
+        showToast('All speakers disabled', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 async function refreshSpeakersFromHA() {
-    // No-op for standalone - replaced by refreshNetworkSpeakers
+    const container = document.getElementById('settings-speaker-tree');
+    if (container) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Refreshing from Home Assistant...</div>';
+    }
+
+    try {
+        const result = await api('POST', '/speakers/refresh');
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();  // Also refresh unified speakers
+        renderSettingsSpeakerTree();
+        showToast(`Found ${result.total_speakers || 0} speakers`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
+}
+
+// --- Unified Speaker Discovery ---
+
+async function loadUnifiedSpeakers() {
+    try {
+        const result = await api('GET', '/speakers/unified');
+        unifiedSpeakers = result.speakers || [];
+        console.log(`Loaded ${unifiedSpeakers.length} unified speakers`);
+    } catch (e) {
+        console.error('Failed to load unified speakers:', e);
+        unifiedSpeakers = [];
+    }
+}
+
+async function scanNetworkSpeakers() {
+    const container = document.getElementById('settings-speaker-tree');
+    if (container) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Scanning network for speakers...</div>';
+    }
+
+    try {
+        showToast('Scanning network...', 'info');
+        const result = await api('POST', '/speakers/scan-network');
+
+        // Refresh all speaker data after scan
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();
+        renderSettingsSpeakerTree();
+
+        // Build informative message from new response format
+        const found = result.found || 0;
+        const newCount = result.new || 0;
+        const merged = result.merged || 0;
+
+        let message = '';
+        if (found === 0) {
+            message = 'No speakers found on network';
+        } else if (newCount > 0 && merged > 0) {
+            message = `Found ${found} speakers: ${newCount} new, ${merged} already known`;
+        } else if (newCount > 0) {
+            message = `Found ${found} new speakers`;
+        } else if (merged > 0) {
+            message = `Found ${found} speakers (all already in HA)`;
+        } else {
+            message = `Found ${found} speakers`;
+        }
+
+        // Add protocol breakdown if available
+        if (result.by_protocol && Object.keys(result.by_protocol).length > 0) {
+            const protocols = Object.entries(result.by_protocol)
+                .map(([p, c]) => `${p}: ${c}`)
+                .join(', ');
+            console.log(`Network scan by protocol: ${protocols}`);
+        }
+
+        showToast(message, found > 0 ? 'success' : 'info');
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
+}
+
+async function discoverAllSpeakers() {
+    const container = document.getElementById('settings-speaker-tree');
+    if (container) {
+        container.innerHTML = '<div class="loading"><div class="spinner"></div>Discovering all speakers...</div>';
+    }
+
+    try {
+        showToast('Running full discovery...', 'info');
+        const result = await api('POST', '/speakers/discover');
+
+        // Refresh all speaker data
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+        unifiedSpeakers = result.speakers || [];
+        renderSettingsSpeakerTree();
+
+        const haCount = result.ha_count || 0;
+        const directCount = result.direct_only_count || 0;
+        showToast(`Found ${result.speaker_count} speakers (${haCount} HA, ${directCount} direct-only)`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
 }
 
 // Status View
@@ -3313,6 +3801,89 @@ async function refreshStatus() {
     await loadChannels();
     renderStatus();
     showToast('Status refreshed', 'success');
+}
+
+// Internal Logs Panel
+let logsPanelExpanded = false;
+
+function toggleLogsPanel() {
+    logsPanelExpanded = !logsPanelExpanded;
+    const panel = document.getElementById('logs-panel');
+    const chevron = document.getElementById('logs-chevron');
+
+    if (logsPanelExpanded) {
+        panel.style.display = 'block';
+        chevron.classList.add('expanded');
+        loadInternalLogs();
+    } else {
+        panel.style.display = 'none';
+        chevron.classList.remove('expanded');
+    }
+}
+
+async function loadInternalLogs() {
+    const categoryFilter = document.getElementById('logs-category-filter')?.value || '';
+    const levelFilter = document.getElementById('logs-level-filter')?.value || '';
+
+    try {
+        let url = '/api/logs?limit=100';
+        if (categoryFilter) url += `&category=${categoryFilter}`;
+        if (levelFilter) url += `&level=${levelFilter}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.status === 'ok') {
+            renderInternalLogs(data.logs);
+            document.getElementById('logs-count').textContent = data.count;
+        }
+    } catch (error) {
+        console.error('Failed to load logs:', error);
+    }
+}
+
+function renderInternalLogs(logs) {
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+
+    if (logs.length === 0) {
+        container.innerHTML = '<div class="logs-empty">No logs match the current filters.</div>';
+        return;
+    }
+
+    const html = logs.map(log => {
+        const timestamp = new Date(log.timestamp).toLocaleTimeString();
+        const levelClass = `log-level-${log.level}`;
+        const categoryLabel = log.category.toUpperCase();
+
+        return `
+            <div class="log-entry ${levelClass}">
+                <span class="log-timestamp">${timestamp}</span>
+                <span class="log-category">${categoryLabel}</span>
+                <span class="log-level">${log.level.toUpperCase()}</span>
+                <span class="log-message">${escapeHtml(log.message)}</span>
+                ${log.details ? `<span class="log-details">${escapeHtml(JSON.stringify(log.details))}</span>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+async function clearInternalLogs() {
+    const categoryFilter = document.getElementById('logs-category-filter')?.value || '';
+
+    try {
+        let url = '/api/logs';
+        if (categoryFilter) url += `?category=${categoryFilter}`;
+
+        await fetch(url, { method: 'DELETE' });
+        await loadInternalLogs();
+        showToast('Logs cleared', 'success');
+    } catch (error) {
+        console.error('Failed to clear logs:', error);
+        showToast('Failed to clear logs', 'error');
+    }
 }
 
 // Volume Slider
@@ -3710,45 +4281,287 @@ async function loadPlugins() {
     }
 }
 
+// Track active plugins tab
+let activePluginsTab = 'installed';
+let pluginCatalog = null;
+let selectedCatalogCategory = 'all';
+let selectedInstalledCategory = 'all';
+
+// Category display names and icons
+const CATEGORY_INFO = {
+    'all': { name: 'All Plugins', icon: '📦' },
+    'speakers': { name: 'Speakers', icon: '🔊' },
+    'importers': { name: 'Importers', icon: '📥' },
+    'utilities': { name: 'Utilities', icon: '🔧' },
+    'sources': { name: 'Audio Sources', icon: '🎵' },
+    'effects': { name: 'Effects', icon: '✨' }
+};
+
+function switchCatalogCategory(category) {
+    selectedCatalogCategory = category;
+    renderPluginsView();
+}
+
+function switchInstalledCategory(category) {
+    selectedInstalledCategory = category;
+    renderPluginsView();
+}
+
 function renderPluginsView() {
     const container = document.getElementById('plugins-list');
     if (!container) return;
 
-    // Upload section always visible at top
+    // Tabs for Installed vs Browse
     let html = `
-        <div class="plugin-upload-section">
-            <h4>Install Plugin</h4>
-            <p style="color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.9rem;">
-                Upload a plugin ZIP file containing <code>plugin.py</code> with required class attributes.
-            </p>
-            <details style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-muted);">
-                <summary style="cursor: pointer; color: var(--accent-primary);">Plugin Requirements</summary>
-                <div style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
-                    <p style="margin: 0 0 0.5rem 0;"><strong>Required in plugin.py:</strong></p>
-                    <pre style="margin: 0; font-size: 0.8rem; overflow-x: auto;">class MyPlugin(BasePlugin):
-    id = "my_plugin"           # Unique identifier
-    name = "My Plugin"         # Display name
-    version = "1.0.0"          # Semantic version (MAJOR.MINOR.PATCH)
-    description = "..."        # Brief description
-    author = "Your Name"       # Plugin author</pre>
-                    <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem;">
-                        Optional: Include <code>manifest.json</code> for additional metadata.
-                    </p>
+        <div class="plugins-tabs">
+            <button class="plugins-tab ${activePluginsTab === 'installed' ? 'active' : ''}"
+                    onclick="switchPluginsTab('installed')">
+                Installed (${plugins.length})
+            </button>
+            <button class="plugins-tab ${activePluginsTab === 'browse' ? 'active' : ''}"
+                    onclick="switchPluginsTab('browse')">
+                Browse Catalog
+            </button>
+        </div>
+    `;
+
+    if (activePluginsTab === 'browse') {
+        html += renderPluginsCatalog();
+    } else {
+        html += renderInstalledPlugins();
+    }
+
+    container.innerHTML = html;
+
+    // Load catalog for update info (needed for both tabs)
+    if (!pluginCatalog) {
+        loadPluginCatalog();
+    }
+}
+
+async function switchPluginsTab(tab) {
+    activePluginsTab = tab;
+    // Load catalog data for update info (needed for both tabs)
+    if (!pluginCatalog) {
+        try {
+            const response = await api('GET', '/plugins/catalog');
+            pluginCatalog = response;
+        } catch (e) {
+            console.error('Failed to load catalog:', e);
+        }
+    }
+    renderPluginsView();
+}
+
+async function loadPluginCatalog() {
+    const catalogContainer = document.getElementById('plugin-catalog-content');
+    if (!catalogContainer) return;
+
+    catalogContainer.innerHTML = '<div class="loading-spinner">Loading catalog...</div>';
+
+    try {
+        const response = await api('GET', '/plugins/catalog');
+        pluginCatalog = response;
+        renderPluginsView();
+    } catch (error) {
+        catalogContainer.innerHTML = `
+            <div class="error-state" style="padding: 2rem; text-align: center;">
+                <p style="color: var(--error);">Failed to load catalog: ${escapeHtml(error.message)}</p>
+                <button class="btn btn-secondary" onclick="loadPluginCatalog()" style="margin-top: 1rem;">
+                    Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+function renderPluginsCatalog() {
+    if (!pluginCatalog) {
+        return `
+            <div id="plugin-catalog-content">
+                <div class="loading-spinner">Loading catalog...</div>
+            </div>
+        `;
+    }
+
+    const catalogPlugins = pluginCatalog.plugins || [];
+    if (catalogPlugins.length === 0) {
+        return `
+            <div class="empty-state" style="padding: 2rem;">
+                <h3>No Plugins Available</h3>
+                <p style="color: var(--text-muted);">The plugin catalog is empty.</p>
+            </div>
+        `;
+    }
+
+    // Get unique categories from catalog
+    const categories = ['all', ...new Set(catalogPlugins.map(p => p.category).filter(Boolean))];
+
+    // Filter plugins by selected category
+    const filteredPlugins = selectedCatalogCategory === 'all'
+        ? catalogPlugins
+        : catalogPlugins.filter(p => p.category === selectedCatalogCategory);
+
+    // Count plugins per category
+    const categoryCounts = { 'all': catalogPlugins.length };
+    for (const plugin of catalogPlugins) {
+        if (plugin.category) {
+            categoryCounts[plugin.category] = (categoryCounts[plugin.category] || 0) + 1;
+        }
+    }
+
+    let html = `
+        <div id="plugin-catalog-content" class="catalog-layout">
+            <div class="catalog-sidebar">
+                <h4>Categories</h4>
+                <ul class="category-list">
+    `;
+
+    // Render category list
+    for (const cat of categories) {
+        const info = CATEGORY_INFO[cat] || { name: cat.charAt(0).toUpperCase() + cat.slice(1), icon: '📁' };
+        const isActive = selectedCatalogCategory === cat;
+        const count = categoryCounts[cat] || 0;
+        html += `
+            <li class="category-item ${isActive ? 'active' : ''}" onclick="switchCatalogCategory('${cat}')">
+                <span class="category-icon">${info.icon}</span>
+                <span class="category-name">${escapeHtml(info.name)}</span>
+                <span class="category-count">${count}</span>
+            </li>
+        `;
+    }
+
+    html += `
+                </ul>
+            </div>
+            <div class="catalog-plugins">
+                <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+                    ${selectedCatalogCategory === 'all'
+                        ? 'Available plugins from the Sonorium catalog. Click Install to add a plugin.'
+                        : `${CATEGORY_INFO[selectedCatalogCategory]?.name || selectedCatalogCategory} plugins. Click Install to add a plugin.`}
+                </p>
+    `;
+
+    if (filteredPlugins.length === 0) {
+        html += `
+            <div class="empty-state" style="padding: 2rem; text-align: center;">
+                <p style="color: var(--text-muted);">No plugins in this category.</p>
+            </div>
+        `;
+    } else {
+        for (const plugin of filteredPlugins) {
+            const isInstalled = plugin.installed;
+            const hasUpdate = plugin.update_available;
+
+            html += `
+                <div class="plugin-card catalog-plugin ${isInstalled ? 'installed' : ''}">
+                    <div class="plugin-header">
+                        <div class="plugin-info">
+                            <h4>${escapeHtml(plugin.name)}</h4>
+                            <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
+                            ${plugin.category ? `<span class="plugin-category">${escapeHtml(plugin.category)}</span>` : ''}
+                            ${isInstalled ? `<span class="plugin-status enabled">Installed${hasUpdate ? ' (Update Available)' : ''}</span>` : ''}
+                        </div>
+                        <div class="plugin-actions">
+                            ${isInstalled && hasUpdate ? `
+                                <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                    Update
+                                </button>
+                            ` : isInstalled ? `
+                                <button class="btn btn-sm btn-secondary" disabled>
+                                    Installed
+                                </button>
+                            ` : `
+                                <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                    Install
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                    ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
+                    ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
                 </div>
-            </details>
-            <div class="upload-controls">
-                <input type="file" id="plugin-file-input" accept=".zip" style="display: none;"
-                       onchange="handlePluginFileSelect(event)">
-                <button class="btn btn-primary" onclick="document.getElementById('plugin-file-input').click()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 0.5rem;">
+            `;
+        }
+    }
+
+    html += '</div></div>';
+    return html;
+}
+
+async function installFromCatalog(pluginId) {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Installing...';
+
+    try {
+        const result = await api('POST', '/plugins/install-from-catalog', { plugin_id: pluginId });
+        showToast(`${result.name || pluginId} installed successfully`, 'success');
+
+        // Refresh plugins list and catalog
+        await loadPlugins();
+        pluginCatalog = null;  // Force refresh
+        await loadPluginCatalog();
+    } catch (error) {
+        showToast(`Failed to install: ${error.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+async function updatePlugin(pluginId) {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+
+    try {
+        const result = await api('POST', `/plugins/${pluginId}/update`);
+        if (result.updated) {
+            showToast(`${result.name || pluginId} updated to v${result.new_version}`, 'success');
+        } else {
+            showToast(result.message || 'Already at latest version', 'info');
+        }
+
+        // Refresh plugins list and catalog
+        await loadPlugins();
+        pluginCatalog = null;  // Force refresh
+        await loadPluginCatalog();
+    } catch (error) {
+        showToast(`Failed to update: ${error.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+function renderInstalledPlugins() {
+    // Upload section at the top
+    let html = `
+        <div class="plugin-upload-section" style="margin-bottom: 1.5rem;">
+            <details style="font-size: 0.9rem;">
+                <summary style="cursor: pointer; color: var(--accent-primary); font-weight: 500;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; vertical-align: middle; margin-right: 0.25rem;">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                         <polyline points="17 8 12 3 7 8"/>
                         <line x1="12" y1="3" x2="12" y2="15"/>
                     </svg>
-                    Upload Plugin
-                </button>
-                <span id="plugin-upload-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
-            </div>
+                    Upload Custom Plugin
+                </summary>
+                <div style="margin-top: 0.75rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
+                    <p style="color: var(--text-muted); margin-bottom: 0.75rem; font-size: 0.85rem;">
+                        Upload a plugin ZIP file containing <code>plugin.py</code> with required class attributes.
+                    </p>
+                    <div class="upload-controls">
+                        <input type="file" id="plugin-file-input" accept=".zip" style="display: none;"
+                               onchange="handlePluginFileSelect(event)">
+                        <button class="btn btn-primary btn-sm" onclick="document.getElementById('plugin-file-input').click()">
+                            Choose File
+                        </button>
+                        <span id="plugin-upload-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
+                    </div>
+                </div>
+            </details>
         </div>
     `;
 
@@ -3761,71 +4574,109 @@ function renderPluginsView() {
                     <path d="M2 12l10 5 10-5"/>
                 </svg>
                 <h3>No Plugins Installed</h3>
-                <p style="color: var(--text-muted);">Upload a plugin or install manually to /config/sonorium/plugins/</p>
+                <p style="color: var(--text-muted);">Upload a plugin or check the Browse Catalog tab</p>
             </div>
         `;
-        container.innerHTML = html;
-        return;
+        return html;
     }
 
-    // Group plugins by type
-    const pluginsByType = {
-        speaker: [],
-        importer: [],
-        utility: [],
-        automation: []
-    };
-
+    // Get unique categories from installed plugins (only show categories that have plugins)
+    const categoryCounts = { 'all': plugins.length };
     for (const plugin of plugins) {
-        const type = plugin.plugin_type || 'utility';
-        if (pluginsByType[type]) {
-            pluginsByType[type].push(plugin);
-        } else {
-            pluginsByType.utility.push(plugin);
-        }
+        const cat = plugin.category || 'utilities';  // Default to utilities if no category
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     }
 
-    // Plugin type labels and icons
-    const typeInfo = {
-        speaker: { label: 'Speaker Protocols', icon: 'M9 18V5l12-2v13M9 18c0 1.7-1.3 3-3 3s-3-1.3-3-3 1.3-3 3-3 3 1.3 3 3z', color: '#4CAF50' },
-        importer: { label: 'Theme Importers', icon: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12', color: '#2196F3' },
-        utility: { label: 'Utilities', icon: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z', color: '#FF9800' },
-        automation: { label: 'Automation', icon: 'M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5', color: '#9C27B0' }
-    };
+    // Build category list - only include categories that have installed plugins
+    const categories = ['all', ...Object.keys(categoryCounts).filter(c => c !== 'all').sort()];
 
-    // Render each plugin type section
-    for (const [type, typePlugins] of Object.entries(pluginsByType)) {
-        if (typePlugins.length === 0) continue;
+    // Filter plugins by selected category
+    const filteredPlugins = selectedInstalledCategory === 'all'
+        ? plugins
+        : plugins.filter(p => (p.category || 'utilities') === selectedInstalledCategory);
 
-        const info = typeInfo[type];
+    html += `
+        <div class="catalog-layout">
+            <div class="catalog-sidebar">
+                <h4>Categories</h4>
+                <ul class="category-list">
+    `;
+
+    // Render category list (only categories with installed plugins)
+    for (const cat of categories) {
+        const info = CATEGORY_INFO[cat] || { name: cat.charAt(0).toUpperCase() + cat.slice(1), icon: '📁' };
+        const isActive = selectedInstalledCategory === cat;
+        const count = categoryCounts[cat] || 0;
         html += `
-            <div class="plugin-type-section">
-                <h4 style="margin-top: 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="${info.color}" stroke-width="2" style="width: 18px; height: 18px;">
-                        <path d="${info.icon}"/>
-                    </svg>
-                    ${info.label}
-                    <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">(${typePlugins.length})</span>
-                </h4>
+            <li class="category-item ${isActive ? 'active' : ''}" onclick="switchInstalledCategory('${cat}')">
+                <span class="category-icon">${info.icon}</span>
+                <span class="category-name">${escapeHtml(info.name)}</span>
+                <span class="category-count">${count}</span>
+            </li>
         `;
+    }
 
-        for (const plugin of typePlugins) {
+    html += `
+                </ul>
+            </div>
+            <div class="catalog-plugins">
+    `;
+
+    if (filteredPlugins.length === 0) {
+        html += `
+            <div class="empty-state" style="padding: 2rem; text-align: center;">
+                <p style="color: var(--text-muted);">No plugins in this category.</p>
+            </div>
+        `;
+    } else {
+        for (const plugin of filteredPlugins) {
             const statusClass = plugin.enabled ? 'enabled' : 'disabled';
             const statusText = plugin.enabled ? 'Enabled' : 'Disabled';
             const toggleText = plugin.enabled ? 'Disable' : 'Enable';
             const isBuiltin = plugin.builtin || false;
+            const category = plugin.category || 'utilities';
+            const catInfo = CATEGORY_INFO[category] || { name: category, icon: '📁' };
+
+            // Check for update availability from catalog
+            let hasUpdate = false;
+            let latestVersion = null;
+            if (pluginCatalog && pluginCatalog.plugins) {
+                const catalogPlugin = pluginCatalog.plugins.find(p => p.id === plugin.id);
+                if (catalogPlugin && catalogPlugin.update_available) {
+                    hasUpdate = true;
+                    latestVersion = catalogPlugin.version;
+                }
+            }
 
             html += `
-                <div class="plugin-card ${statusClass}">
+                <div class="plugin-card ${statusClass} ${hasUpdate ? 'has-update' : ''}">
                     <div class="plugin-header">
                         <div class="plugin-info">
                             <h4>${escapeHtml(plugin.name)}</h4>
                             <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
+                            <span class="plugin-category">${escapeHtml(category)}</span>
                             <span class="plugin-status ${statusClass}">${statusText}</span>
-                            <span class="plugin-type-badge" style="background: ${info.color}20; color: ${info.color}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">${type}</span>
                             ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
+                            ${hasUpdate ? `<span class="plugin-update-badge" title="Update to v${latestVersion}">Update Available</span>` : ''}
                         </div>
                         <div class="plugin-actions">
+                            ${hasUpdate ? `
+                            <button class="btn btn-sm btn-primary"
+                                    onclick="updatePlugin('${plugin.id}')"
+                                    title="Update to v${latestVersion}">
+                                Update
+                            </button>
+                            ` : ''}
+                            ${plugin.settings_schema && Object.keys(plugin.settings_schema).length > 0 ? `
+                            <button class="btn btn-sm btn-outline"
+                                    onclick="openPluginSettings('${plugin.id}')"
+                                    title="Plugin settings">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                </svg>
+                            </button>
+                            ` : ''}
                             <button class="btn btn-sm ${plugin.enabled ? 'btn-secondary' : 'btn-primary'}"
                                     onclick="togglePlugin('${plugin.id}', ${!plugin.enabled})">
                                 ${toggleText}
@@ -3848,11 +4699,11 @@ function renderPluginsView() {
                 </div>
             `;
         }
-
-        html += '</div>';
     }
 
-    container.innerHTML = html;
+    html += '</div></div>';
+
+    return html;
 }
 
 function renderPluginUI(plugin) {
@@ -3957,6 +4808,148 @@ async function togglePlugin(pluginId, enable) {
     }
 }
 
+async function openPluginSettings(pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    if (!plugin || !plugin.settings_schema) {
+        showToast('No settings available for this plugin', 'error');
+        return;
+    }
+
+    // Fetch current settings from API
+    let currentSettings = {};
+    try {
+        const result = await api('GET', `/plugins/${pluginId}/settings`);
+        currentSettings = result.settings || {};
+    } catch (error) {
+        console.error('Failed to load plugin settings:', error);
+    }
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'plugin-settings-modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>${escapeHtml(plugin.name)} Settings</h3>
+                <button class="modal-close" onclick="closePluginSettingsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                ${renderPluginSettingsForm(plugin, currentSettings)}
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePluginSettingsModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePluginSettings('${pluginId}')">Save</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closePluginSettingsModal();
+    });
+}
+
+function renderPluginSettingsForm(plugin, currentSettings) {
+    const schema = plugin.settings_schema;
+    if (!schema || Object.keys(schema).length === 0) {
+        return '<p>No configurable settings.</p>';
+    }
+
+    // Handle both JSON Schema format (with properties) and flat format (direct settings)
+    const properties = schema.properties || schema;
+
+    let html = '<div class="plugin-settings-form">';
+
+    for (const [key, prop] of Object.entries(properties)) {
+        const value = currentSettings[key] !== undefined ? currentSettings[key] : prop.default;
+        // Support both 'title' (JSON Schema) and 'label' (flat format) for field labels
+        const label = prop.title || prop.label || key;
+        const description = prop.description || '';
+
+        html += `<div class="form-group" style="margin-bottom: 1rem;">`;
+        html += `<label style="display: block; margin-bottom: 0.25rem; font-weight: 500;">${escapeHtml(label)}</label>`;
+
+        if (prop.type === 'boolean') {
+            html += `
+                <label class="toggle-switch" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" data-setting="${key}" ${value ? 'checked' : ''}>
+                    <span class="toggle-slider"></span>
+                </label>
+            `;
+        } else if (prop.type === 'number') {
+            // Support both 'minimum'/'maximum' (JSON Schema) and 'min'/'max' (flat format)
+            const minVal = prop.minimum !== undefined ? prop.minimum : prop.min;
+            const maxVal = prop.maximum !== undefined ? prop.maximum : prop.max;
+            const min = minVal !== undefined ? `min="${minVal}"` : '';
+            const max = maxVal !== undefined ? `max="${maxVal}"` : '';
+            html += `
+                <input type="number" data-setting="${key}" value="${value || ''}"
+                       ${min} ${max} class="form-control" style="width: 100%; padding: 0.5rem;">
+            `;
+        } else if (prop.enum) {
+            html += `<select data-setting="${key}" class="form-control" style="width: 100%; padding: 0.5rem;">`;
+            for (const opt of prop.enum) {
+                html += `<option value="${escapeHtml(opt)}" ${value === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`;
+            }
+            html += `</select>`;
+        } else {
+            // Default: string input
+            html += `
+                <input type="text" data-setting="${key}" value="${escapeHtml(value || '')}"
+                       class="form-control" style="width: 100%; padding: 0.5rem;"
+                       placeholder="${escapeHtml(prop.default || '')}">
+            `;
+        }
+
+        if (description) {
+            html += `<small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">${escapeHtml(description)}</small>`;
+        }
+        html += `</div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+async function savePluginSettings(pluginId) {
+    const modal = document.getElementById('plugin-settings-modal');
+    if (!modal) return;
+
+    const settings = {};
+    const inputs = modal.querySelectorAll('[data-setting]');
+
+    for (const input of inputs) {
+        const key = input.dataset.setting;
+        if (input.type === 'checkbox') {
+            settings[key] = input.checked;
+        } else if (input.type === 'number') {
+            settings[key] = input.value ? parseFloat(input.value) : null;
+        } else {
+            settings[key] = input.value;
+        }
+    }
+
+    try {
+        await api('PUT', `/plugins/${pluginId}/settings`, { settings });
+        showToast('Settings saved', 'success');
+        closePluginSettingsModal();
+        // Reload plugins to reflect any changes
+        await loadPlugins();
+        renderPluginsView();
+    } catch (error) {
+        showToast(error.message || 'Failed to save settings', 'error');
+    }
+}
+
+function closePluginSettingsModal() {
+    const modal = document.getElementById('plugin-settings-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
 async function executePluginAction(pluginId, actionId) {
     try {
         // Gather form data for this plugin
@@ -4052,8 +5045,9 @@ async function uninstallPlugin(pluginId, pluginName) {
         await api('DELETE', `/plugins/${pluginId}`);
         showToast(`Plugin "${pluginName}" uninstalled successfully`, 'success');
 
-        // Reload plugins list
+        // Reload plugins list and clear catalog cache so it refreshes
         await loadPlugins();
+        pluginCatalog = null;  // Force catalog to re-fetch and update installed status
         renderPluginsView();
 
     } catch (error) {
