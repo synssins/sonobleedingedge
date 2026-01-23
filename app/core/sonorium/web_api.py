@@ -701,28 +701,35 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     if (web_dir / 'static').exists():
         fastapi_app.mount('/static', StaticFiles(directory=str(web_dir / 'static')), name='static')
 
-    # --- Startup Event: Validate Network Speakers ---
+    # --- Startup Event: Restore Speakers and Schedule Validation ---
     @fastapi_app.on_event('startup')
-    async def validate_saved_speakers():
-        """Validate saved network speakers on startup."""
+    async def restore_speakers_and_schedule_validation():
+        """Restore enabled speakers immediately, validate in background after server starts."""
         try:
-            from sonorium.network_speakers import validate_network_speakers, get_discovered_speakers
-            speakers = get_discovered_speakers()
-            if speakers:
-                logger.info(f"Validating {len(speakers)} saved network speakers...")
-                results = await validate_network_speakers()
-                available = sum(1 for v in results.values() if v)
-                logger.info(f"Network speaker validation: {available}/{len(results)} available")
-            else:
-                logger.info("No saved network speakers to validate")
-
-            # Load enabled network speakers from config
+            # Restore enabled network speakers immediately (don't wait for validation)
             config = get_config()
             if config.enabled_network_speakers:
                 logger.info(f"Restoring {len(config.enabled_network_speakers)} enabled network speakers")
                 _app_instance.set_enabled_network_speakers(config.enabled_network_speakers)
+
+            # Schedule validation to run after server is fully ready
+            async def delayed_validation():
+                await asyncio.sleep(3)  # Wait for server to be fully ready
+                try:
+                    from sonorium.network_speakers import validate_network_speakers, get_discovered_speakers
+                    speakers = get_discovered_speakers()
+                    if speakers:
+                        logger.info(f"Validating {len(speakers)} saved network speakers...")
+                        results = await validate_network_speakers()
+                        available = sum(1 for v in results.values() if v)
+                        logger.info(f"Network speaker validation: {available}/{len(results)} available")
+                except Exception as e:
+                    logger.error(f"Network speaker validation failed: {e}")
+
+            asyncio.create_task(delayed_validation())
+
         except Exception as e:
-            logger.error(f"Failed to validate network speakers on startup: {e}")
+            logger.error(f"Failed to restore network speakers on startup: {e}")
 
     # --- Root / UI ---
 

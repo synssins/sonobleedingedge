@@ -247,7 +247,7 @@ class NetworkSpeakerDiscovery:
             except (asyncio.TimeoutError, OSError, ConnectionRefusedError) as e:
                 logger.debug(f"AirPlay validation failed for {speaker.name}: {e}")
                 speaker.status = SpeakerStatus.UNAVAILABLE
-                logger.info(f"Speaker {speaker.name} is unavailable at {speaker.host}:{port}")
+                logger.debug(f"Speaker {speaker.name} is unavailable at {speaker.host}:{port}")
                 return False
             except Exception as e:
                 logger.debug(f"AirPlay validation error for {speaker.name}: {e}")
@@ -270,7 +270,7 @@ class NetworkSpeakerDiscovery:
             except (asyncio.TimeoutError, OSError, ConnectionRefusedError) as e:
                 logger.debug(f"HEOS validation failed for {speaker.name}: {e}")
                 speaker.status = SpeakerStatus.UNAVAILABLE
-                logger.info(f"Speaker {speaker.name} is unavailable at {speaker.host}:{port}")
+                logger.debug(f"Speaker {speaker.name} is unavailable at {speaker.host}:{port}")
                 return False
             except Exception as e:
                 logger.debug(f"HEOS validation error for {speaker.name}: {e}")
@@ -321,7 +321,7 @@ class NetworkSpeakerDiscovery:
                 return True
 
         speaker.status = SpeakerStatus.UNAVAILABLE
-        logger.info(f"Speaker {speaker.name} is unavailable at {speaker.host}")
+        logger.debug(f"Speaker {speaker.name} is unavailable at {speaker.host}")
         return False
 
     async def _find_speaker_by_uuid(self, speaker: NetworkSpeaker) -> Optional[str]:
