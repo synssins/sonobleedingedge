@@ -101,6 +101,13 @@
                         </svg>
                         <span>Plugins</span>
                     </div>
+                    <div class="nav-sub-item" onclick="showView('settings-integration')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                        </svg>
+                        <span>Integration</span>
+                    </div>
                 </div>
             </div>
 
@@ -657,6 +664,88 @@ Example:
                             </svg>
                             <h3>Coming Soon</h3>
                             <p style="color: var(--text-muted);">The plugin system is under development. Check back in a future update!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Integration Settings View -->
+            <div id="view-settings-integration" class="view">
+                <div class="settings-section">
+                    <h3>Home Assistant Integration</h3>
+                    <p>Configure how Sonorium integrates with Home Assistant.</p>
+
+                    <div class="settings-form">
+                        <div class="settings-group" id="ha-settings-group">
+                            <div class="setting-item">
+                                <label>Status</label>
+                                <div class="setting-value">
+                                    <span id="ha-status" class="badge badge-info">Checking...</span>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <label>Detection Method</label>
+                                <div class="setting-value">
+                                    <span id="ha-detection-method">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <h4>MQTT Settings</h4>
+                            <p class="setting-description">MQTT broker connection for Home Assistant entity updates.</p>
+
+                            <div class="setting-item">
+                                <label>Status</label>
+                                <div class="setting-value">
+                                    <span id="mqtt-status" class="badge badge-info">Checking...</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item">
+                                <label for="mqtt-host">Host</label>
+                                <div class="setting-value">
+                                    <input type="text" id="mqtt-host" class="form-control" placeholder="auto" disabled>
+                                    <span class="setting-hint" id="mqtt-host-hint">Auto-detected from Home Assistant</span>
+                                </div>
+                            </div>
+
+                            <div class="setting-item">
+                                <label for="mqtt-port">Port</label>
+                                <div class="setting-value">
+                                    <input type="number" id="mqtt-port" class="form-control" placeholder="1883" disabled>
+                                </div>
+                            </div>
+
+                            <div class="setting-item">
+                                <label for="mqtt-username">Username</label>
+                                <div class="setting-value">
+                                    <input type="text" id="mqtt-username" class="form-control" placeholder="Optional" disabled>
+                                </div>
+                            </div>
+
+                            <div class="setting-item">
+                                <label for="mqtt-password">Password</label>
+                                <div class="setting-value">
+                                    <input type="password" id="mqtt-password" class="form-control" placeholder="Optional" disabled>
+                                </div>
+                            </div>
+
+                            <div class="setting-item" id="mqtt-override-group" style="display: none;">
+                                <label>Manual Override</label>
+                                <div class="setting-value">
+                                    <label class="toggle">
+                                        <input type="checkbox" id="mqtt-override-toggle" onchange="toggleMQTTOverride()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="setting-hint">Enable to manually configure MQTT settings</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-actions" id="integration-actions" style="display: none;">
+                            <button class="btn btn-primary" onclick="saveIntegrationSettings()">Save Settings</button>
+                            <button class="btn btn-secondary" onclick="resetIntegrationSettings()">Reset to Defaults</button>
                         </div>
                     </div>
                 </div>

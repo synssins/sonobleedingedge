@@ -518,9 +518,15 @@ function showView(viewName) {
         'settings-speakers': 'Speakers',
         'settings-groups': 'Speaker Groups',
         'settings-plugins': 'Plugins',
+        'settings-integration': 'Integration',
         status: 'Status'
     };
     document.getElementById('view-title').textContent = titles[viewName] || viewName;
+
+    // Handle view-specific loading
+    if (viewName === 'settings-integration') {
+        loadIntegrationSettings();
+    }
 
     // Update actions
     const actionsHtml = {
@@ -3208,6 +3214,127 @@ function renderAudioSettings() {
 
 function renderPluginsSettings() {
     // Placeholder - plugins list is static HTML for now
+}
+
+// =============================================================================
+// Integration Settings (HA & MQTT)
+// =============================================================================
+
+async function loadIntegrationSettings() {
+    // Ensure capabilities are loaded
+    if (!platformCapabilities) {
+        await loadCapabilities();
+    }
+
+    // Update HA status
+    const haStatus = document.getElementById('ha-status');
+    const haDetectionMethod = document.getElementById('ha-detection-method');
+    const haEnabled = platformCapabilities?.features?.ha_integration?.enabled;
+    const haDetected = platformCapabilities?.features?.ha_integration?.detected;
+
+    if (haStatus) {
+        if (haEnabled) {
+            haStatus.textContent = 'Connected';
+            haStatus.className = 'badge badge-success';
+        } else if (haDetected) {
+            haStatus.textContent = 'Available';
+            haStatus.className = 'badge badge-warning';
+        } else {
+            haStatus.textContent = 'Not Available';
+            haStatus.className = 'badge badge-secondary';
+        }
+    }
+
+    if (haDetectionMethod) {
+        if (platformCapabilities?.platform === 'ha_addon') {
+            haDetectionMethod.textContent = 'Running as Home Assistant Add-on';
+        } else if (haDetected) {
+            haDetectionMethod.textContent = 'Auto-detected via Supervisor API';
+        } else {
+            haDetectionMethod.textContent = 'Manual configuration available';
+        }
+    }
+
+    // Update MQTT status
+    const mqttStatus = document.getElementById('mqtt-status');
+    const mqttEnabled = platformCapabilities?.features?.mqtt?.enabled;
+    const mqttDetected = platformCapabilities?.features?.mqtt?.detected;
+
+    if (mqttStatus) {
+        if (mqttEnabled) {
+            mqttStatus.textContent = 'Connected';
+            mqttStatus.className = 'badge badge-success';
+        } else if (mqttDetected) {
+            mqttStatus.textContent = 'Available';
+            mqttStatus.className = 'badge badge-warning';
+        } else {
+            mqttStatus.textContent = 'Not Configured';
+            mqttStatus.className = 'badge badge-secondary';
+        }
+    }
+
+    // Show/hide override option based on platform
+    const overrideGroup = document.getElementById('mqtt-override-group');
+    const canOverride = platformCapabilities?.features?.mqtt?.can_override !== false;
+    if (overrideGroup) {
+        overrideGroup.style.display = canOverride ? '' : 'none';
+    }
+
+    // Load actual settings values if available
+    try {
+        const settings = await api('GET', '/settings/integration');
+        if (settings && !settings.error) {
+            document.getElementById('mqtt-host').value = settings.mqtt_host || '';
+            document.getElementById('mqtt-port').value = settings.mqtt_port || 1883;
+            document.getElementById('mqtt-username').value = settings.mqtt_username || '';
+            // Password is not returned for security, leave empty
+        }
+    } catch (error) {
+        console.log('Integration settings endpoint not available');
+    }
+}
+
+function toggleMQTTOverride() {
+    const override = document.getElementById('mqtt-override-toggle').checked;
+    const fields = ['mqtt-host', 'mqtt-port', 'mqtt-username', 'mqtt-password'];
+    const actionsEl = document.getElementById('integration-actions');
+
+    fields.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = !override;
+        }
+    });
+
+    if (actionsEl) {
+        actionsEl.style.display = override ? '' : 'none';
+    }
+}
+
+async function saveIntegrationSettings() {
+    const settings = {
+        mqtt_host: document.getElementById('mqtt-host').value || null,
+        mqtt_port: parseInt(document.getElementById('mqtt-port').value) || 1883,
+        mqtt_username: document.getElementById('mqtt-username').value || null,
+        mqtt_password: document.getElementById('mqtt-password').value || null
+    };
+
+    try {
+        await api('PUT', '/settings/integration', settings);
+        showToast('Integration settings saved', 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to save integration settings', 'error');
+    }
+}
+
+function resetIntegrationSettings() {
+    document.getElementById('mqtt-host').value = '';
+    document.getElementById('mqtt-port').value = '1883';
+    document.getElementById('mqtt-username').value = '';
+    document.getElementById('mqtt-password').value = '';
+    document.getElementById('mqtt-override-toggle').checked = false;
+    toggleMQTTOverride();
+    showToast('Settings reset to defaults (not saved yet)', 'info');
 }
 
 async function saveAudioSettings() {

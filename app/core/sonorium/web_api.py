@@ -2031,27 +2031,29 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             })
 
         # Get enabled network speakers
-        enabled_network_ids = _app_instance.get_enabled_network_speakers()
+        enabled_network_ids = set(_app_instance.get_enabled_network_speakers())
         discovered = get_discovered_speakers()
 
+        # Include ALL discovered network speakers (with enabled status)
+        # This allows Settings view to show all speakers with enable/disable toggles
         network_speakers = []
         for speaker in discovered:
-            if speaker['id'] in enabled_network_ids:
-                # Include availability status for UI display
-                is_available = speaker.get('available', speaker.get('status') == 'available')
-                network_speakers.append({
-                    'entity_id': f'network_speaker.{speaker["id"]}',
-                    'name': speaker['name'],
-                    'friendly_name': speaker['name'],
-                    'state': 'on' if is_available else 'unavailable',
-                    'model': speaker.get('model'),
-                    'host': speaker.get('host'),
-                    'speaker_type': speaker.get('type', 'dlna'),
-                    'network_speaker_id': speaker['id'],
-                    'available': is_available,
-                    'status': speaker.get('status', 'unknown'),
-                    'last_seen': speaker.get('last_seen')
-                })
+            is_enabled = speaker['id'] in enabled_network_ids
+            is_available = speaker.get('available', speaker.get('status') == 'available')
+            network_speakers.append({
+                'entity_id': f'network_speaker.{speaker["id"]}',
+                'name': speaker['name'],
+                'friendly_name': speaker['name'],
+                'state': 'on' if is_available else 'unavailable',
+                'model': speaker.get('model'),
+                'host': speaker.get('host'),
+                'speaker_type': speaker.get('type', 'dlna'),
+                'network_speaker_id': speaker['id'],
+                'available': is_available,
+                'status': speaker.get('status', 'unknown'),
+                'last_seen': speaker.get('last_seen'),
+                'enabled': is_enabled,  # For toggle display in Settings
+            })
 
         areas = []
 
@@ -2063,7 +2065,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                 'speakers': local_speakers
             })
 
-        # Network speakers area (if any enabled)
+        # Network speakers area (show all discovered)
         if network_speakers:
             areas.append({
                 'area_id': 'network_speakers',
@@ -2071,11 +2073,16 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                 'speakers': network_speakers
             })
 
+        # Build enabled speakers list for the UI
+        enabled_speakers = [f'audio_device.{d.id}' for d in devices if d.id == (current_device.id if current_device else None)]
+        enabled_speakers.extend([f'network_speaker.{sid}' for sid in enabled_network_ids])
+
         return {
             'floors': [],
             'unassigned_areas': areas,
             'unassigned_speakers': [],
-            'custom_areas': {}
+            'custom_areas': {},
+            'enabled_speakers': enabled_speakers,  # List of enabled speaker entity_ids
         }
 
     @fastapi_app.get('/api/speakers/unified')
@@ -2358,17 +2365,69 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
     @fastapi_app.post('/api/settings/speakers/enable')
     async def enable_speaker(request: dict):
-        """Enable (select) an audio device."""
+        """Enable a speaker (audio device or network speaker)."""
         entity_id = request.get('entity_id', '')
         if entity_id.startswith('audio_device.'):
             device_id = int(entity_id.split('.')[1])
             _app_instance.set_audio_device(device_id)
+        elif entity_id.startswith('network_speaker.'):
+            # Enable a network speaker
+            speaker_id = entity_id.replace('network_speaker.', '')
+            enabled = set(_app_instance.get_enabled_network_speakers())
+            if speaker_id not in enabled:
+                enabled.add(speaker_id)
+                _app_instance.set_enabled_network_speakers(list(enabled))
+                # Persist to config
+                config = get_config()
+                config.enabled_network_speakers = list(enabled)
+                save_config()
         return {'status': 'ok'}
 
     @fastapi_app.post('/api/settings/speakers/disable')
     async def disable_speaker(request: dict):
-        """No-op for standalone - can't disable the only output."""
+        """Disable a speaker (remove from enabled list)."""
+        entity_id = request.get('entity_id', '')
+        if entity_id.startswith('network_speaker.'):
+            # Disable a network speaker
+            speaker_id = entity_id.replace('network_speaker.', '')
+            enabled = set(_app_instance.get_enabled_network_speakers())
+            if speaker_id in enabled:
+                enabled.remove(speaker_id)
+                _app_instance.set_enabled_network_speakers(list(enabled))
+                # Persist to config
+                config = get_config()
+                config.enabled_network_speakers = list(enabled)
+                save_config()
+        # For audio_device, no-op - can't disable the only output
         return {'status': 'ok'}
+
+    @fastapi_app.post('/api/settings/speakers/enable-all')
+    async def enable_all_speakers():
+        """Enable all discovered network speakers."""
+        from sonorium.network_speakers import get_discovered_speakers
+
+        discovered = get_discovered_speakers()
+        all_ids = [sp['id'] for sp in discovered]
+        _app_instance.set_enabled_network_speakers(all_ids)
+
+        # Persist to config
+        config = get_config()
+        config.enabled_network_speakers = all_ids
+        save_config()
+
+        return {'status': 'ok', 'enabled_count': len(all_ids)}
+
+    @fastapi_app.post('/api/settings/speakers/disable-all')
+    async def disable_all_speakers():
+        """Disable all network speakers."""
+        _app_instance.set_enabled_network_speakers([])
+
+        # Persist to config
+        config = get_config()
+        config.enabled_network_speakers = []
+        save_config()
+
+        return {'status': 'ok', 'enabled_count': 0}
 
     # --- Network Speakers ---
     # Native network speaker discovery (Chromecast, Sonos, DLNA)
