@@ -3819,6 +3819,36 @@ async function stopNetworkSpeaker(speakerId, pluginId) {
 }
 
 // Settings speaker tree with floor/area hierarchy
+// Collapsed state is persisted in localStorage
+const speakerSectionCollapsed = JSON.parse(localStorage.getItem('sonorium_speakerSections') || '{}');
+
+function toggleSpeakerSection(sectionId) {
+    speakerSectionCollapsed[sectionId] = !speakerSectionCollapsed[sectionId];
+    localStorage.setItem('sonorium_speakerSections', JSON.stringify(speakerSectionCollapsed));
+    renderSettingsSpeakerTree();
+}
+
+function renderCollapsibleSection(sectionId, icon, title, count, contentHtml, extraClass = '') {
+    const isCollapsed = speakerSectionCollapsed[sectionId];
+    const chevronSvg = `<svg class="collapse-chevron ${isCollapsed ? '' : 'expanded'}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="9 18 15 12 9 6"/>
+    </svg>`;
+
+    return `
+        <div class="settings-floor ${extraClass} ${isCollapsed ? 'collapsed' : ''}">
+            <div class="settings-floor-header collapsible" onclick="toggleSpeakerSection('${sectionId}')">
+                ${chevronSvg}
+                ${icon}
+                <span>${escapeHtml(title)}</span>
+                <span class="badge">${count}</span>
+            </div>
+            <div class="settings-floor-content ${isCollapsed ? 'hidden' : ''}">
+                ${contentHtml}
+            </div>
+        </div>
+    `;
+}
+
 function renderSettingsSpeakerTree() {
     const container = document.getElementById('settings-speaker-tree');
     if (!container) return;
@@ -3828,97 +3858,65 @@ function renderSettingsSpeakerTree() {
         return;
     }
 
-    const allSpeakers = getAllSpeakersFlat();
-    if (allSpeakers.length === 0) {
-        const haEnabled = isHAEnabled();
-        const message = haEnabled
-            ? 'No speakers found. Click "Refresh from HA" or "Scan Network" to discover speakers.'
-            : 'No speakers found. Click "Scan Network" to discover speakers on your network.';
-        container.innerHTML = `<p class="text-muted">${message}</p>`;
-        return;
-    }
-
     // Get enabled speakers list (empty = all enabled for backwards compat)
     const isAllEnabled = !enabledSpeakers || enabledSpeakers.length === 0;
 
     let html = '';
+    const haEnabled = isHAEnabled();
 
-    // Render floors with their areas and speakers
+    // Render floors with their areas and speakers (HA hierarchy)
     for (const floor of speakerHierarchy.floors || []) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    </svg>
-                    <span>${escapeHtml(floor.name)}</span>
-                </div>
-                <div class="settings-areas">
-                    ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
+        const speakerCount = (floor.areas || []).reduce((sum, a) => sum + (a.speakers?.length || 0), 0);
+        const floorIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        </svg>`;
+        const contentHtml = `<div class="settings-areas">
+            ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+        </div>`;
+        html += renderCollapsibleSection(`floor_${floor.id || floor.name}`, floorIcon, floor.name, speakerCount, contentHtml);
     }
 
     // Unassigned areas (areas without a floor)
     if ((speakerHierarchy.unassigned_areas || []).length > 0) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    </svg>
-                    <span>Other Areas</span>
-                </div>
-                <div class="settings-areas">
-                    ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
+        const speakerCount = speakerHierarchy.unassigned_areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0);
+        const areaIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        </svg>`;
+        const contentHtml = `<div class="settings-areas">
+            ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+        </div>`;
+        html += renderCollapsibleSection('other_areas', areaIcon, 'Other Areas', speakerCount, contentHtml);
     }
 
-    // Unassigned speakers (speakers without an area)
-    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="12" y1="8" x2="12" y2="12"/>
-                        <line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    <span>Unassigned</span>
-                </div>
-                <div class="settings-speakers" style="margin-left: 1.5rem;">
-                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
+    // Unassigned speakers (speakers without an area) - only show if HA is enabled
+    if (haEnabled && (speakerHierarchy.unassigned_speakers || []).length > 0) {
+        const speakerCount = speakerHierarchy.unassigned_speakers.length;
+        const unassignedIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>`;
+        const contentHtml = `<div class="settings-speakers" style="margin-left: 1.5rem;">
+            ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+        </div>`;
+        html += renderCollapsibleSection('unassigned', unassignedIcon, 'Unassigned', speakerCount, contentHtml);
     }
 
     // Network-discovered speakers (found by plugins but not in HA)
     const directOnlySpeakers = (unifiedSpeakers || []).filter(s => !s.entity_id);
     if (directOnlySpeakers.length > 0) {
-        html += `
-            <div class="settings-floor network-discovered">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="2" y1="12" x2="22" y2="12"/>
-                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                    </svg>
-                    <span>Network Discovered</span>
-                    <span class="badge">${directOnlySpeakers.length}</span>
-                </div>
-                <div class="settings-speakers" style="margin-left: 1.5rem;">
-                    ${directOnlySpeakers.map(speaker => renderDirectOnlySpeaker(speaker)).join('')}
-                </div>
-            </div>
-        `;
+        const networkIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>`;
+        const contentHtml = `<div class="settings-speakers" style="margin-left: 1.5rem;">
+            ${directOnlySpeakers.map(speaker => renderDirectOnlySpeaker(speaker)).join('')}
+        </div>`;
+        html += renderCollapsibleSection('network_discovered', networkIcon, 'Network Discovered', directOnlySpeakers.length, contentHtml, 'network-discovered');
     }
 
     if (!html) {
-        const haEnabled = isHAEnabled();
         const message = haEnabled
             ? 'No speakers found. Click "Refresh from HA" or "Scan Network" to discover speakers.'
             : 'No speakers found. Click "Scan Network" to discover speakers on your network.';
@@ -3931,14 +3929,14 @@ function renderSettingsSpeakerTree() {
 function renderDirectOnlySpeaker(speaker) {
     // Direct-only speakers have IP and protocol but no HA entity
     const ip = speaker.ip_address || '';
-    const protocol = speaker.protocol || (speaker.found_by && speaker.found_by[0]) || 'unknown';
     const model = speaker.model || '';
 
-    // Generate entity_id for network speaker if not present
-    const entityId = speaker.entity_id || `network_speaker.${speaker.id}`;
+    // Use enabled status from API (already calculated with original_ids)
+    const isEnabled = speaker.enabled !== false;  // Default true if not specified
 
-    // Check if this speaker is enabled
-    const isEnabled = speaker.enabled || (enabledSpeakers || []).includes(entityId);
+    // Get original IDs for this unified speaker (used for enable/disable)
+    const originalIds = speaker.original_ids || [];
+    const originalIdsJson = JSON.stringify(originalIds).replace(/"/g, '&quot;');
 
     // Found by badges
     let foundByBadges = '';
@@ -3952,16 +3950,9 @@ function renderDirectOnlySpeaker(speaker) {
         <div class="settings-speaker direct-only ${isEnabled ? '' : 'disabled'}">
             <label class="toggle-switch">
                 <input type="checkbox" ${isEnabled ? 'checked' : ''}
-                       onchange="toggleSpeakerEnabled('${entityId}', this.checked)">
+                       onchange="toggleUnifiedSpeakerEnabled(${originalIdsJson}, this.checked)">
                 <span class="toggle-slider"></span>
             </label>
-            <div class="direct-only-indicator" title="Network discovered (not in Home Assistant)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="2" y1="12" x2="22" y2="12"/>
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                </svg>
-            </div>
             <div class="settings-speaker-info">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
@@ -4041,6 +4032,24 @@ async function toggleSpeakerEnabled(entityId, enabled) {
         await api('POST', endpoint, { entity_id: entityId });
         await loadSpeakerHierarchy();
         await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();
+        renderSettingsSpeakerTree();
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSettingsSpeakerTree();
+    }
+}
+
+async function toggleUnifiedSpeakerEnabled(originalIds, enabled) {
+    // Toggle all original speaker IDs for a unified (merged) speaker
+    try {
+        const endpoint = enabled ? '/settings/speakers/enable' : '/settings/speakers/disable';
+        // Enable/disable all original IDs (they represent the same physical speaker)
+        for (const oid of originalIds) {
+            await api('POST', endpoint, { entity_id: `network_speaker.${oid}` });
+        }
+        await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();
         renderSettingsSpeakerTree();
     } catch (error) {
         showToast(error.message, 'error');

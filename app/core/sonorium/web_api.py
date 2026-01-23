@@ -2242,12 +2242,27 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             # Get directly discovered speakers
             direct_speakers = get_discovered_speakers()
 
+            # Get enabled network speaker IDs
+            enabled_network_ids = set(_app_instance.get_enabled_network_speakers())
+            is_all_enabled = len(enabled_network_ids) == 0  # Empty = all enabled
+
             # Use SpeakerDeduplicator to merge speakers found by multiple protocols
             deduplicator = SpeakerDeduplicator()
+
+            # Track original IDs for each IP (to map merged speakers to their original IDs)
+            ip_to_original_ids: dict[str, list[str]] = {}
 
             for sp in direct_speakers:
                 protocol = sp.get('type', 'unknown').lower()
                 ip_address = sp.get('host') or sp.get('ip')
+                original_id = sp.get('id', '')
+
+                # Track original IDs by IP for later lookup
+                if ip_address:
+                    if ip_address not in ip_to_original_ids:
+                        ip_to_original_ids[ip_address] = []
+                    if original_id and original_id not in ip_to_original_ids[ip_address]:
+                        ip_to_original_ids[ip_address].append(original_id)
 
                 # Create UnifiedSpeaker for deduplication
                 unified = UnifiedSpeaker(
@@ -2264,7 +2279,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                     manufacturer=sp.get('manufacturer'),
                     capabilities=[],
                     extra={
-                        'original_id': sp.get('id'),
+                        'original_id': original_id,
                         'port': sp.get('port'),
                         'status': sp.get('status'),
                         'available': sp.get('available', True),
@@ -2279,10 +2294,25 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             speakers = []
             for speaker in deduplicated:
                 speaker_dict = speaker.to_dict()
-                # Add 'available' field for frontend compatibility
+
+                # Collect ALL original IDs for this merged speaker
+                original_ids = []
+                if speaker.ip_address and speaker.ip_address in ip_to_original_ids:
+                    original_ids = ip_to_original_ids[speaker.ip_address]
+                elif speaker.extra.get('original_id'):
+                    original_ids = [speaker.extra['original_id']]
+
+                # Determine if speaker is enabled (any of its original IDs in enabled list)
+                if is_all_enabled:
+                    is_enabled = True
+                else:
+                    is_enabled = any(oid in enabled_network_ids for oid in original_ids)
+
+                # Add fields for frontend compatibility
                 speaker_dict['available'] = speaker.extra.get('available', True)
-                # Add 'id' alias for canonical_id for backwards compatibility
                 speaker_dict['id'] = speaker.canonical_id
+                speaker_dict['original_ids'] = original_ids  # All original speaker IDs
+                speaker_dict['enabled'] = is_enabled
                 speakers.append(speaker_dict)
 
             logger.info(f"Unified speakers: {len(direct_speakers)} discovered -> {len(speakers)} after deduplication")
