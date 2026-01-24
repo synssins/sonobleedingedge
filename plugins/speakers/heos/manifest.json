@@ -1,0 +1,28 @@
+{
+    "id": "heos",
+    "name": "HEOS (Denon/Marantz)",
+    "version": "1.0.0",
+    "description": "Stream audio to HEOS devices (Denon, Marantz) via CLI protocol",
+    "author": "Sonorium",
+    "plugin_type": "speaker",
+    "category": "speakers",
+    "homepage": "https://github.com/synssins/sonobleedingedge",
+    "dependencies": {},
+    "optional_dependencies": {
+        "pyheos": ">=0.7.0"
+    },
+    "capabilities": ["discovery", "playback", "volume"],
+    "settings_schema": {
+        "type": "object",
+        "properties": {
+            "discovery_timeout": {
+                "type": "number",
+                "title": "Discovery Timeout",
+                "description": "Seconds to wait for HEOS discovery",
+                "default": 10,
+                "minimum": 5,
+                "maximum": 30
+            }
+        }
+    }
+}

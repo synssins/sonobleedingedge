@@ -11,6 +11,7 @@ from typing import Optional
 import logging
 
 from ..core.state import get_state_manager, StateManager
+from .app import get_version
 from ..models import (
     Speaker,
     Theme,
@@ -599,7 +600,7 @@ async def get_status(manager: StateManager = Depends(get_manager)):
     active_sessions = manager.get_active_sessions()
 
     return StatusResponse(
-        version="0.1.0",  # TODO: Read from VERSION file
+        version=get_version(),
         state="playing" if active_sessions else "idle",
         speaker_count=len(manager.state.speakers),
         enabled_speaker_count=len(manager.get_enabled_speakers()),

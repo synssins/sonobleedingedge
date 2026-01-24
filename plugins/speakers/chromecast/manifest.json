@@ -1,0 +1,27 @@
+{
+    "id": "chromecast",
+    "name": "Chromecast",
+    "version": "1.0.0",
+    "description": "Stream audio to Chromecast and Google Cast devices",
+    "author": "Sonorium",
+    "plugin_type": "speaker",
+    "category": "speakers",
+    "homepage": "https://github.com/synssins/sonobleedingedge",
+    "dependencies": {
+        "pychromecast": ">=14.0.0"
+    },
+    "capabilities": ["discovery", "playback", "volume", "mute", "pause"],
+    "settings_schema": {
+        "type": "object",
+        "properties": {
+            "discovery_timeout": {
+                "type": "number",
+                "title": "Discovery Timeout",
+                "description": "Seconds to wait for Chromecast discovery",
+                "default": 5,
+                "minimum": 1,
+                "maximum": 30
+            }
+        }
+    }
+}

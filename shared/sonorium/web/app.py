@@ -21,15 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 def get_version() -> str:
-    """Read version from VERSION file."""
-    # Look for VERSION file in project root
-    current = Path(__file__).parent
-    for _ in range(5):  # Search up to 5 levels
-        version_file = current / "VERSION"
-        if version_file.exists():
-            return version_file.read_text().strip()
-        current = current.parent
-    return "0.1.0"
+    """Read version from VERSION file in sonorium core."""
+    # VERSION is in the sonorium package root (synced with core)
+    version_file = Path(__file__).parent.parent / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip()
+    return "0.0.0"
 
 
 @asynccontextmanager
@@ -145,70 +142,6 @@ def create_app(
             }
 
     return app
-
-
-def create_standalone_app(
-    data_dir: Path = None,
-    static_dir: Path = None,
-) -> FastAPI:
-    """
-    Create app configured for standalone deployment.
-
-    Args:
-        data_dir: Directory for config and data storage
-        static_dir: Directory containing web UI static files
-
-    Returns:
-        Configured FastAPI application
-    """
-    # Determine paths
-    if data_dir is None:
-        import appdirs
-        data_dir = Path(appdirs.user_data_dir("sonorium", "sonorium"))
-
-    config_path = data_dir / "config.json"
-
-    # Load settings from environment and config
-    settings = Settings.from_env()
-    settings.data_dir = str(data_dir)
-
-    return create_app(
-        settings=settings,
-        config_path=config_path,
-        static_dir=static_dir,
-    )
-
-
-def create_ha_addon_app() -> FastAPI:
-    """
-    Create app configured for Home Assistant addon deployment.
-
-    Paths and settings are derived from HA environment.
-
-    Returns:
-        Configured FastAPI application
-    """
-    import os
-
-    # HA addon paths
-    data_dir = Path("/data")
-    config_path = data_dir / "config.json"
-    static_dir = Path("/app/sonorium/web/static")
-
-    # Load settings from environment
-    settings = Settings.from_env()
-    settings.data_dir = str(data_dir)
-
-    # Check for media path
-    media_path = Path("/media/sonorium")
-    if media_path.exists():
-        settings.theme_dirs.append(str(media_path))
-
-    return create_app(
-        settings=settings,
-        config_path=config_path,
-        static_dir=static_dir if static_dir.exists() else None,
-    )
 
 
 async def run_server(app: FastAPI, host: str = "0.0.0.0", port: int = 8099):
