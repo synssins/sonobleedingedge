@@ -212,6 +212,8 @@ class Settings:
                 pass
 
         # MQTT settings
+        if mqtt_enabled := os.environ.get("SONORIUM_MQTT_ENABLED"):
+            settings.mqtt.enabled = mqtt_enabled.lower() in ("true", "1", "yes")
         if mqtt_host := os.environ.get("SONORIUM_MQTT_HOST"):
             settings.mqtt.host = mqtt_host
         if mqtt_port := os.environ.get("SONORIUM_MQTT_PORT"):
