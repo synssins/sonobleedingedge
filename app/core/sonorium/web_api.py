@@ -2630,7 +2630,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         if current:
             enabled.append(f'audio_device.{current.id}')
 
-        # Enabled network speakers - return IDs WITHOUT prefix to match original_ids
+        # Enabled network speakers - return IDs WITH prefix to match hierarchy entity_ids
         enabled_network_ids = _app_instance.get_enabled_network_speakers()
 
         # Handle special "__none__" sentinel (means all disabled)
@@ -2638,9 +2638,9 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             # Return sentinel so frontend knows all are disabled
             enabled.append('__none__')
         else:
-            # Return network speaker IDs directly (no prefix)
+            # Return network speaker IDs with prefix to match hierarchy entity_id format
             for nid in enabled_network_ids:
-                enabled.append(nid)
+                enabled.append(f'network_speaker.{nid}')
 
         # All available speakers
         all_speakers = [f'audio_device.{d.id}' for d in devices]

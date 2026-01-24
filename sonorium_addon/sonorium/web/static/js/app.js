@@ -1357,11 +1357,11 @@ function isSpeakerEnabled(entityId) {
 
 function isUnifiedSpeakerEnabled(speaker) {
     // Check if a unified speaker (from Network Discovered) is enabled
-    // Uses original_ids to match against enabledSpeakers
+    // Uses original_ids to match against enabledSpeakers (with network_speaker. prefix)
     if (!enabledSpeakers || enabledSpeakers.length === 0) return true;
     if (enabledSpeakers.length === 1 && enabledSpeakers[0] === '__none__') return false;
     const originalIds = speaker.original_ids || [];
-    return originalIds.some(id => enabledSpeakers.includes(id));
+    return originalIds.some(id => enabledSpeakers.includes(`network_speaker.${id}`));
 }
 
 function getEnabledSpeakersInArea(area) {
@@ -4088,15 +4088,15 @@ function renderDirectOnlySpeaker(speaker) {
     // Check enabled status against enabledSpeakers list
     // - ["__none__"] = all disabled
     // - [] = all enabled (backwards compat)
-    // - [ids...] = only those IDs enabled
+    // - [ids...] = only those IDs enabled (with network_speaker. prefix)
     let isEnabled;
     if (enabledSpeakers && enabledSpeakers.length === 1 && enabledSpeakers[0] === '__none__') {
         isEnabled = false;  // Sentinel value means all disabled
     } else if (!enabledSpeakers || enabledSpeakers.length === 0) {
         isEnabled = true;  // Empty = all enabled
     } else {
-        // Check if any original_id is in enabledSpeakers
-        isEnabled = originalIds.some(id => enabledSpeakers.includes(id));
+        // Check if any original_id (with prefix) is in enabledSpeakers
+        isEnabled = originalIds.some(id => enabledSpeakers.includes(`network_speaker.${id}`));
     }
     const originalIdsJson = JSON.stringify(originalIds).replace(/"/g, '&quot;');
 
