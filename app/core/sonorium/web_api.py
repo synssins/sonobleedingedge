@@ -2216,14 +2216,28 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             })
 
         # Get enabled network speakers
-        enabled_network_ids = set(_app_instance.get_enabled_network_speakers())
+        enabled_network_ids_list = _app_instance.get_enabled_network_speakers()
         discovered = get_discovered_speakers()
+
+        # Handle sentinel value: ['__none__'] means all disabled, [] means all enabled
+        if enabled_network_ids_list == ['__none__']:
+            # All disabled
+            enabled_network_ids = set()
+            all_enabled = False
+        elif not enabled_network_ids_list:
+            # Empty = all enabled (backwards compat)
+            all_enabled = True
+            enabled_network_ids = set()
+        else:
+            # Specific IDs enabled
+            all_enabled = False
+            enabled_network_ids = set(enabled_network_ids_list)
 
         # Include ALL discovered network speakers (with enabled status)
         # This allows Settings view to show all speakers with enable/disable toggles
         network_speakers = []
         for speaker in discovered:
-            is_enabled = speaker['id'] in enabled_network_ids
+            is_enabled = all_enabled or speaker['id'] in enabled_network_ids
             is_available = speaker.get('available', speaker.get('status') == 'available')
             network_speakers.append({
                 'entity_id': f'network_speaker.{speaker["id"]}',
@@ -2260,7 +2274,15 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
         # Build enabled speakers list for the UI
         enabled_speakers = [f'audio_device.{d.id}' for d in devices if d.id == (current_device.id if current_device else None)]
-        enabled_speakers.extend([f'network_speaker.{sid}' for sid in enabled_network_ids])
+
+        # Handle network speaker enabled list
+        if all_enabled:
+            # All enabled - add all discovered speaker IDs
+            enabled_speakers.extend([f'network_speaker.{speaker["id"]}' for speaker in discovered])
+        elif enabled_network_ids:
+            # Specific IDs enabled
+            enabled_speakers.extend([f'network_speaker.{sid}' for sid in enabled_network_ids])
+        # Note: If sentinel (['__none__']), we don't add any network speakers to enabled list
 
         return {
             'floors': [],
@@ -2288,8 +2310,24 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             direct_speakers = get_discovered_speakers()
 
             # Get enabled network speaker IDs
-            enabled_network_ids = set(_app_instance.get_enabled_network_speakers())
-            is_all_enabled = len(enabled_network_ids) == 0  # Empty = all enabled
+            enabled_network_ids_list = _app_instance.get_enabled_network_speakers()
+
+            # Handle the sentinel value and empty list conventions:
+            # - [] (empty) = all enabled (backwards compat)
+            # - ['__none__'] = none enabled (all disabled)
+            # - [ids...] = only those specific IDs enabled
+            if enabled_network_ids_list == ['__none__']:
+                is_all_enabled = False
+                is_all_disabled = True
+                enabled_network_ids = set()
+            elif not enabled_network_ids_list:
+                is_all_enabled = True
+                is_all_disabled = False
+                enabled_network_ids = set()
+            else:
+                is_all_enabled = False
+                is_all_disabled = False
+                enabled_network_ids = set(enabled_network_ids_list)
 
             # Use SpeakerDeduplicator to merge speakers found by multiple protocols
             deduplicator = SpeakerDeduplicator()
@@ -2349,7 +2387,9 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                     original_ids = ip_to_original_ids[speaker.ip_address]
 
                 # Determine if speaker is enabled (any of its original IDs in enabled list)
-                if is_all_enabled:
+                if is_all_disabled:
+                    is_enabled = False
+                elif is_all_enabled:
                     is_enabled = True
                 else:
                     is_enabled = any(oid in enabled_network_ids for oid in original_ids)
@@ -2584,20 +2624,27 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         devices = _app_instance.list_audio_devices()
         current = _app_instance._current_device
 
-        # Current local audio device
+        # Current local audio device (keep prefix for audio devices)
         enabled = []
         if current:
             enabled.append(f'audio_device.{current.id}')
 
-        # Enabled network speakers
+        # Enabled network speakers - return IDs WITHOUT prefix to match original_ids
         enabled_network_ids = _app_instance.get_enabled_network_speakers()
-        for nid in enabled_network_ids:
-            enabled.append(f'network_speaker.{nid}')
+
+        # Handle special "__none__" sentinel (means all disabled)
+        if enabled_network_ids == ['__none__']:
+            # Return sentinel so frontend knows all are disabled
+            enabled.append('__none__')
+        else:
+            # Return network speaker IDs directly (no prefix)
+            for nid in enabled_network_ids:
+                enabled.append(nid)
 
         # All available speakers
         all_speakers = [f'audio_device.{d.id}' for d in devices]
         for speaker in get_discovered_speakers():
-            all_speakers.append(f'network_speaker.{speaker["id"]}')
+            all_speakers.append(speaker["id"])  # No prefix
 
         return {
             'enabled_speakers': enabled,
@@ -2626,7 +2673,14 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         else:
             # Enable a network speaker (handles both with and without prefix)
             speaker_id = entity_id.replace('network_speaker.', '') if entity_id.startswith('network_speaker.') else entity_id
-            enabled = set(_app_instance.get_enabled_network_speakers())
+            current_list = _app_instance.get_enabled_network_speakers()
+
+            # Handle sentinel value: ['__none__'] means all disabled, start fresh
+            if current_list == ['__none__']:
+                enabled = set()
+            else:
+                enabled = set(current_list)
+
             if speaker_id not in enabled:
                 enabled.add(speaker_id)
                 _app_instance.set_enabled_network_speakers(list(enabled))
@@ -2646,10 +2700,17 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         else:
             # Disable a network speaker (handles both with and without prefix)
             speaker_id = entity_id.replace('network_speaker.', '') if entity_id.startswith('network_speaker.') else entity_id
-            enabled = set(_app_instance.get_enabled_network_speakers())
+            current_list = _app_instance.get_enabled_network_speakers()
+
+            # Handle sentinel value: ['__none__'] means all already disabled
+            if current_list == ['__none__']:
+                # Already all disabled, nothing to do
+                return {'status': 'ok'}
+
+            enabled = set(current_list)
 
             # If enabled list is empty (meaning "all enabled" by default),
-            # initialize with all discovered speakers first
+            # initialize with all discovered speakers first, then remove this one
             if not enabled:
                 from sonorium.network_speakers import get_discovered_speakers
                 discovered = get_discovered_speakers()
@@ -2659,10 +2720,16 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             # Now remove the disabled speaker
             if speaker_id in enabled:
                 enabled.remove(speaker_id)
-            _app_instance.set_enabled_network_speakers(list(enabled))
-            # Persist to config
+
+            # Persist to config and memory
             config = get_config()
-            config.enabled_network_speakers = list(enabled)
+            # If all speakers are now disabled, use sentinel
+            if not enabled:
+                _app_instance.set_enabled_network_speakers(['__none__'])
+                config.enabled_network_speakers = ['__none__']
+            else:
+                _app_instance.set_enabled_network_speakers(list(enabled))
+                config.enabled_network_speakers = list(enabled)
             save_config()
         # For audio_device, no-op - can't disable the only output
         return {'status': 'ok'}
@@ -2686,11 +2753,12 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     @fastapi_app.post('/api/settings/speakers/disable-all')
     async def disable_all_speakers():
         """Disable all network speakers."""
-        _app_instance.set_enabled_network_speakers([])
+        # Use sentinel value to indicate "none enabled" (empty list means "all enabled")
+        _app_instance.set_enabled_network_speakers(['__none__'])
 
         # Persist to config
         config = get_config()
-        config.enabled_network_speakers = []
+        config.enabled_network_speakers = ['__none__']
         save_config()
 
         return {'status': 'ok', 'enabled_count': 0}
