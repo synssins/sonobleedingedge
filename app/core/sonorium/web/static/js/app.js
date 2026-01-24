@@ -4195,8 +4195,9 @@ async function toggleUnifiedSpeakerEnabled(originalIds, enabled) {
     try {
         const endpoint = enabled ? '/settings/speakers/enable' : '/settings/speakers/disable';
         // Enable/disable all original IDs (they represent the same physical speaker)
+        // Use the original ID directly (e.g., "dlna_FF31F09E...") without prefix
         for (const oid of originalIds) {
-            await api('POST', endpoint, { entity_id: `network_speaker.${oid}` });
+            await api('POST', endpoint, { entity_id: oid });
         }
         await loadEnabledSpeakers();
         await loadUnifiedSpeakers();
@@ -4212,6 +4213,7 @@ async function enableAllSpeakers() {
         await api('POST', '/settings/speakers/enable-all');
         await loadSpeakerHierarchy();
         await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();
         renderSettingsSpeakerTree();
         showToast('All speakers enabled', 'success');
     } catch (error) {
@@ -4224,6 +4226,7 @@ async function disableAllSpeakers() {
         await api('POST', '/settings/speakers/disable-all');
         await loadSpeakerHierarchy();
         await loadEnabledSpeakers();
+        await loadUnifiedSpeakers();
         renderSettingsSpeakerTree();
         showToast('All speakers disabled', 'success');
     } catch (error) {
