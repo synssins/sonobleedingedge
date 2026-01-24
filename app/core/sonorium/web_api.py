@@ -2233,14 +2233,30 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             all_enabled = False
             enabled_network_ids = set(enabled_network_ids_list)
 
-        # Note: Network speakers are displayed via /api/speakers/unified in the
-        # "Network Discovered" section, which provides IP, model, and protocol badges.
+        # Build network speakers list for hierarchy (needed for channel selection)
+        # The Settings UI filters this out and shows "Network Discovered" instead
+        network_speakers = []
+        for speaker in discovered:
+            is_enabled = all_enabled or speaker['id'] in enabled_network_ids
+            is_available = speaker.get('available', speaker.get('status') == 'available')
+            network_speakers.append({
+                'entity_id': f'network_speaker.{speaker["id"]}',
+                'name': speaker['name'],
+                'friendly_name': speaker['name'],
+                'state': 'on' if is_available else 'unavailable',
+                'model': speaker.get('model'),
+                'host': speaker.get('host'),
+                'speaker_type': speaker.get('type', 'dlna'),
+                'network_speaker_id': speaker['id'],
+                'available': is_available,
+                'status': speaker.get('status', 'unknown'),
+                'last_seen': speaker.get('last_seen'),
+                'enabled': is_enabled,
+            })
 
         areas = []
 
         # Local audio devices area (if any)
-        # Only shown if there are actual local audio devices (Windows with sound card,
-        # Docker with audio passthrough, etc.)
         if local_speakers:
             areas.append({
                 'area_id': 'local_audio',
@@ -2248,9 +2264,14 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                 'speakers': local_speakers
             })
 
-        # Note: Network speakers are NOT included here - they appear in the
-        # "Network Discovered" section via /api/speakers/unified which provides
-        # a richer UI with IP, model, and protocol badges.
+        # Network speakers area - included for channel selection
+        # Settings UI filters this out and shows "Network Discovered" section instead
+        if network_speakers:
+            areas.append({
+                'area_id': 'network_speakers',
+                'name': 'Network Speakers',
+                'speakers': network_speakers
+            })
 
         # Build enabled speakers list for the UI
         enabled_speakers = [f'audio_device.{d.id}' for d in devices if d.id == (current_device.id if current_device else None)]

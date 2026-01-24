@@ -1351,7 +1351,17 @@ function onChannelPresetChange() {
 // Speaker Tree
 function isSpeakerEnabled(entityId) {
     if (!enabledSpeakers || enabledSpeakers.length === 0) return true;
+    if (enabledSpeakers.length === 1 && enabledSpeakers[0] === '__none__') return false;
     return enabledSpeakers.includes(entityId);
+}
+
+function isUnifiedSpeakerEnabled(speaker) {
+    // Check if a unified speaker (from Network Discovered) is enabled
+    // Uses original_ids to match against enabledSpeakers
+    if (!enabledSpeakers || enabledSpeakers.length === 0) return true;
+    if (enabledSpeakers.length === 1 && enabledSpeakers[0] === '__none__') return false;
+    const originalIds = speaker.original_ids || [];
+    return originalIds.some(id => enabledSpeakers.includes(id));
 }
 
 function getEnabledSpeakersInArea(area) {
@@ -4016,13 +4026,15 @@ function renderSettingsSpeakerTree() {
     }
 
     // Unassigned areas (areas without a floor)
-    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
-        const speakerCount = speakerHierarchy.unassigned_areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0);
+    // Filter out 'network_speakers' area - those are shown in "Network Discovered" section instead
+    const filteredAreas = (speakerHierarchy.unassigned_areas || []).filter(a => a.area_id !== 'network_speakers');
+    if (filteredAreas.length > 0) {
+        const speakerCount = filteredAreas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0);
         const areaIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
         </svg>`;
         const contentHtml = `<div class="settings-areas">
-            ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+            ${filteredAreas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
         </div>`;
         html += renderCollapsibleSection('other_areas', areaIcon, 'Other Areas', speakerCount, contentHtml);
     }

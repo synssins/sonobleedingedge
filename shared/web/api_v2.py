@@ -1160,7 +1160,7 @@ def create_api_router(
 
     @router.post("/settings/speakers/disable")
     async def disable_speaker(request: SingleSpeakerRequest) -> SpeakerSettingsResponse:
-        """Disable a single speaker."""
+        """Disable a single speaker and stop any active streams to it."""
         settings = state_store.settings
         entity_id = request.entity_id
 
@@ -1177,6 +1177,24 @@ def create_api_router(
             # Remove from enabled list
             if entity_id in settings.enabled_speakers:
                 settings.enabled_speakers.remove(entity_id)
+
+        # Stop streaming to this speaker if it's in any active session
+        if session_manager and session_manager.media_controller:
+            for session in session_manager.list():
+                if session.is_playing:
+                    speakers = session_manager.get_resolved_speakers(session)
+                    if entity_id in speakers:
+                        logger.info(f"Stopping stream to disabled speaker: {entity_id}")
+                        try:
+                            await session_manager.media_controller.stop_multi([entity_id])
+                        except Exception as e:
+                            logger.warning(f"Failed to stop speaker {entity_id}: {e}")
+
+        # Remove speaker from all sessions
+        for session in session_manager.list() if session_manager else []:
+            if entity_id in session.speakers.include_speakers:
+                session.speakers.include_speakers.remove(entity_id)
+                logger.info(f"Removed disabled speaker {entity_id} from session {session.id}")
 
         # If enabled_speakers is now empty (user disabled their only speaker),
         # use sentinel value to indicate "no speakers enabled" (not "all enabled")
