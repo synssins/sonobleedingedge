@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from ha.settings import HASettings
 from ha.supervisor import SupervisorAPI
 from sonorium.core.state import StateManager
-from sonorium.core.mqtt import MQTTBridge
+from sonorium.core.mqtt import init_mqtt_bridge, stop_mqtt_bridge
+from sonorium.models.settings import MQTTSettings
 from sonorium.web.app import create_app
 
 
@@ -24,8 +25,8 @@ async def main():
     print("Starting Sonorium (Home Assistant Addon)...")
 
     # Load settings from HA options
-    settings = HASettings.load()
-    print(f"Loaded settings: port={settings.port}, mqtt_enabled={settings.mqtt.enabled}")
+    ha_settings = HASettings.load()
+    print(f"Loaded settings: port={ha_settings.port}, mqtt_enabled={ha_settings.mqtt.enabled}")
 
     # Initialize Supervisor API
     supervisor = SupervisorAPI()
@@ -42,17 +43,22 @@ async def main():
 
     # Initialize MQTT bridge if enabled
     mqtt_bridge = None
-    if settings.mqtt.enabled:
-        mqtt_config = {
-            "host": settings.mqtt.host,
-            "port": settings.mqtt.port,
-            "username": settings.mqtt.username,
-            "password": settings.mqtt.password,
-            "topic_prefix": settings.mqtt.topic_prefix,
-        }
-        mqtt_bridge = MQTTBridge(state, mqtt_config)
-        await mqtt_bridge.start()
-        print(f"MQTT bridge connected to {settings.mqtt.host}:{settings.mqtt.port}")
+    if ha_settings.mqtt.enabled:
+        # Convert HA MQTT settings to core MQTTSettings
+        mqtt_settings = MQTTSettings(
+            enabled=ha_settings.mqtt.enabled,
+            host=ha_settings.mqtt.host,
+            port=ha_settings.mqtt.port,
+            username=ha_settings.mqtt.username,
+            password=ha_settings.mqtt.password,
+            topic_prefix=ha_settings.mqtt.topic_prefix,
+            ha_discovery_prefix=ha_settings.mqtt.discovery_prefix,
+        )
+        mqtt_bridge = await init_mqtt_bridge(mqtt_settings)
+        if mqtt_bridge:
+            print(f"MQTT bridge connected to {ha_settings.mqtt.host}:{ha_settings.mqtt.port}")
+        else:
+            print("MQTT bridge failed to connect")
 
     # Create FastAPI app
     app = create_app(state)
@@ -62,7 +68,7 @@ async def main():
     config = uvicorn.Config(
         app,
         host="0.0.0.0",
-        port=settings.port,
+        port=ha_settings.port,
         log_level="info",
     )
     server = uvicorn.Server(config)
@@ -71,8 +77,7 @@ async def main():
         await server.serve()
     finally:
         # Cleanup
-        if mqtt_bridge:
-            await mqtt_bridge.stop()
+        await stop_mqtt_bridge()
         await supervisor.close()
 
 
