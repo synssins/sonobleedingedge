@@ -11,7 +11,7 @@ from typing import Optional
 import logging
 
 from ..core.state import get_state_manager, StateManager
-from .app import get_version
+from ..version import get_version
 from ..models import (
     Speaker,
     Theme,

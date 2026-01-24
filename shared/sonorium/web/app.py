@@ -16,17 +16,9 @@ import logging
 from .api import router as api_router
 from ..core.state import init_state_manager, get_state_manager
 from ..models import Settings
+from ..version import get_version
 
 logger = logging.getLogger(__name__)
-
-
-def get_version() -> str:
-    """Read version from VERSION file in sonorium core."""
-    # VERSION is in the sonorium package root (synced with core)
-    version_file = Path(__file__).parent.parent / "VERSION"
-    if version_file.exists():
-        return version_file.read_text().strip()
-    return "0.0.0"
 
 
 @asynccontextmanager
