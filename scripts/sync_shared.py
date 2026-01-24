@@ -2,9 +2,10 @@
 """
 Sync shared code to platform targets.
 
-Source of truth: shared/
+Source of truth: shared/sonorium/
 Targets:
-  - app/core/sonorium/ (Standalone)
+  - standalone_app/windows/sonorium/ (Windows Standalone)
+  - standalone_app/docker/sonorium/ (Docker Standalone)
   - sonorium_addon/sonorium/ (HA Addon)
 
 IMPORTANT: This script uses REPLACE mode for all directories.
@@ -27,20 +28,13 @@ def get_project_root() -> Path:
     return Path(__file__).parent.parent
 
 
-# Directories to sync from shared/ to targets
-# Format: (source_subdir, target_subdir_in_sonorium)
-SYNC_DIRS = [
-    "core",
-    "plugins",
-    "platform",
-    "models",
-    "web",
-    "modules",
-]
+# Source directory (inside shared/)
+SOURCE_DIR = "shared/sonorium"
 
 # Target locations relative to project root
 TARGETS = [
-    "app/core/sonorium",
+    "standalone_app/windows/sonorium",
+    "standalone_app/docker/sonorium",
     "sonorium_addon/sonorium",
 ]
 
@@ -130,30 +124,6 @@ def sync_directory(
     return copied, deleted, unchanged
 
 
-def sync_plugins(dry_run: bool = False, verbose: bool = False) -> tuple[int, int, int]:
-    """Sync plugins/ directory to targets."""
-    root = get_project_root()
-    source = root / "plugins"
-
-    total_copied = 0
-    total_deleted = 0
-    total_unchanged = 0
-
-    if not source.exists():
-        return 0, 0, 0
-
-    for target_base in TARGETS:
-        target = root / target_base / "plugins"
-        if verbose:
-            print(f"\n  Syncing plugins to {target_base}/plugins")
-        copied, deleted, unchanged = sync_directory(source, target, dry_run, verbose)
-        total_copied += copied
-        total_deleted += deleted
-        total_unchanged += unchanged
-
-    return total_copied, total_deleted, total_unchanged
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Sync shared code to platform targets",
@@ -175,7 +145,11 @@ def main():
     args = parser.parse_args()
 
     root = get_project_root()
-    source_base = root / "shared"
+    source = root / SOURCE_DIR
+
+    if not source.exists():
+        print(f"ERROR: Source directory not found: {source}")
+        return 1
 
     if args.dry_run:
         print("DRY RUN - no changes will be made\n")
@@ -184,43 +158,25 @@ def main():
     total_deleted = 0
     total_unchanged = 0
 
-    # Sync each directory in shared/ to each target
-    for sync_dir in SYNC_DIRS:
-        source = source_base / sync_dir
+    print(f"Source: {SOURCE_DIR}/")
+    print(f"Syncing to {len(TARGETS)} targets...\n")
 
-        if not source.exists():
-            continue
+    # Sync to each target
+    for target_path in TARGETS:
+        target = root / target_path
 
-        print(f"Syncing shared/{sync_dir}/")
+        print(f"  -> {target_path}/")
 
-        for target_base in TARGETS:
-            target = root / target_base / sync_dir
+        copied, deleted, unchanged = sync_directory(
+            source, target, args.dry_run, args.verbose
+        )
 
-            if args.verbose:
-                print(f"  -> {target_base}/{sync_dir}")
+        total_copied += copied
+        total_deleted += deleted
+        total_unchanged += unchanged
 
-            copied, deleted, unchanged = sync_directory(
-                source, target, args.dry_run, args.verbose
-            )
-
-            total_copied += copied
-            total_deleted += deleted
-            total_unchanged += unchanged
-
-    # Sync plugins separately (from plugins/, not shared/plugins/)
-    plugins_source = root / "plugins"
-    if plugins_source.exists():
-        print(f"\nSyncing plugins/")
-        for target_base in TARGETS:
-            target = root / target_base / "plugins"
-            if args.verbose:
-                print(f"  -> {target_base}/plugins")
-            copied, deleted, unchanged = sync_directory(
-                plugins_source, target, args.dry_run, args.verbose
-            )
-            total_copied += copied
-            total_deleted += deleted
-            total_unchanged += unchanged
+        if args.verbose:
+            print(f"     ({copied} copied, {deleted} deleted, {unchanged} unchanged)")
 
     # Summary
     print(f"\n{'DRY RUN ' if args.dry_run else ''}Summary:")

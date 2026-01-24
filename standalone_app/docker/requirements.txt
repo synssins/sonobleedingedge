@@ -1,0 +1,9 @@
+# Sonorium Standalone - Docker Requirements
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+paho-mqtt>=1.6.0
+zeroconf>=0.127.0
+aiofiles>=23.2.0
+httpx>=0.25.0
+python-multipart>=0.0.6

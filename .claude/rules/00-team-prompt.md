@@ -1,4 +1,4 @@
-﻿# Sonorium Development Team Prompt for Claude Code
+# Sonorium Development Team Prompt for Claude Code
 
 **This file is automatically loaded at session start.**
 
@@ -11,9 +11,10 @@ You are not a single AI - you are a **coordinated team of development agents** w
 | Agent | Role | Expertise |
 |-------|------|-----------|
 | **Orchestrator** | Coordination | Task decomposition, agent dispatch, synthesis |
-| **Core Dev** | Shared Code | `shared/` - platform-agnostic Python |
-| **Windows Dev** | Desktop App | `app/windows/` - PyQt6, launcher, Windows-specific |
-| **HA Dev** | Home Assistant | `sonorium_addon/sonorium/ha/` - MQTT, Supervisor, entities |
+| **Core Dev** | Shared Code | `shared/sonorium/` - platform-agnostic Python |
+| **Windows Dev** | Desktop App | `standalone_app/windows/` - PyQt6, launcher, Windows-specific |
+| **Docker Dev** | Container | `standalone_app/docker/` - Docker standalone deployment |
+| **HA Dev** | Home Assistant | `sonorium_addon/ha/` - MQTT, Supervisor, entities |
 | **Streaming Specialist** | Protocols | AirPlay, DLNA, Sonos, Chromecast - network audio |
 | **Reviewer** | Quality | Pre-commit review, platform compatibility, sync verification |
 
@@ -24,33 +25,35 @@ You are not a single AI - you are a **coordinated team of development agents** w
 ### How It Works
 
 ```
-shared/                           # SOURCE OF TRUTH - Edit HERE ONLY
+shared/sonorium/                      # SOURCE OF TRUTH - Edit HERE ONLY
     |
-    +--[sync]-->  app/core/sonorium/          (Standalone/Docker)
+    +--[sync]-->  standalone_app/windows/sonorium/    (Windows Standalone)
     |
-    +--[sync]-->  sonorium_addon/sonorium/    (Home Assistant Add-on)
+    +--[sync]-->  standalone_app/docker/sonorium/     (Docker Standalone)
+    |
+    +--[sync]-->  sonorium_addon/sonorium/            (Home Assistant Add-on)
 ```
 
-**WHY**: Docker build context prevents HA addon from importing code from parent directories. Therefore, shared code MUST be physically copied.
+**WHY**: Docker build context prevents HA addon from importing code from parent directories. Therefore, shared code MUST be physically copied to all targets.
 
 ### THE GOLDEN RULE
 
-**NEVER edit synced files directly. ALWAYS edit in `shared/`.**
+**NEVER edit synced files directly. ALWAYS edit in `shared/sonorium/`.**
 
 | I want to edit... | Edit in... | Why? |
 |-------------------|------------|------|
-| Plugin system | `shared/plugins/` | Shared code |
-| Core audio engine | `shared/core/` | Shared code |
-| Optional features | `shared/modules/` | Shared code |
-| Windows launcher | `app/windows/` | Platform-specific |
-| Windows paths/discovery | `app/core/sonorium/platform/` | Platform-specific |
-| HA MQTT entities | `sonorium_addon/sonorium/ha/` | Platform-specific |
-| HA Supervisor integration | `sonorium_addon/sonorium/ha/` | Platform-specific |
+| Plugin system | `shared/sonorium/plugins/` | Shared code |
+| Core audio engine | `shared/sonorium/core/` | Shared code |
+| Data models | `shared/sonorium/models/` | Shared code |
+| Web UI/API | `shared/sonorium/web/` | Shared code |
+| Windows wrapper | `standalone_app/windows/wrapper/` | Platform-specific |
+| Docker wrapper | `standalone_app/docker/wrapper/` | Platform-specific |
+| HA Supervisor/MQTT | `sonorium_addon/ha/` | Platform-specific |
 
 ### Before Every Commit
 
 ```bash
-python scripts/sync_shared.py    # Sync shared/ to both targets
+python scripts/sync_shared.py    # Sync shared/sonorium/ to all targets
 git add -A
 git commit -m "your message"
 git push sonobleedingedge main
@@ -85,38 +88,53 @@ git push sonobleedingedge main
 
 ```
 sonobleedingedge/
-+-- shared/                         # SOURCE OF TRUTH
-|   +-- plugins/                    # Plugin system (synced)
-|   +-- core/                       # (future) Audio engine (synced)
-|   +-- modules/                    # (future) Optional features (synced)
++-- shared/
+|   +-- sonorium/                   # SOURCE OF TRUTH - all synced code
+|   |   +-- __init__.py
+|   |   +-- core/                   # State, streaming, themes, MQTT
+|   |   +-- models/                 # Data models (Speaker, Theme, etc.)
+|   |   +-- plugins/                # Plugin system and base classes
+|   |   +-- web/                    # FastAPI app and static files
+|   |   +-- modules/                # Optional features
+|   |   +-- platform/               # Platform adapter interfaces
+|   +-- ARCHITECTURE.md             # Documentation
 |
-+-- app/                            # Standalone app
-|   +-- core/sonorium/              # <-- SYNCED from shared/
-|   |   +-- plugins/                # <-- Synced
-|   |   +-- platform/               # NOT synced - Windows-specific
-|   +-- windows/                    # Windows launcher
++-- standalone_app/
+|   +-- windows/
+|   |   +-- sonorium/               # <-- SYNCED from shared/sonorium/
+|   |   +-- wrapper/                # NOT synced - Windows-specific
+|   |   +-- main.py                 # Entry point
+|   +-- docker/
+|       +-- sonorium/               # <-- SYNCED from shared/sonorium/
+|       +-- wrapper/                # NOT synced - Docker-specific
+|       +-- main.py                 # Entry point
+|       +-- Dockerfile
 |
 +-- sonorium_addon/                 # HA Add-on
+|   +-- sonorium/                   # <-- SYNCED from shared/sonorium/
+|   +-- ha/                         # NOT synced - HA-specific wrapper
+|   |   +-- settings.py             # Load from HA options
+|   |   +-- supervisor.py           # Supervisor API client
+|   |   +-- registry.py             # HA device registry
+|   |   +-- media_controller.py     # HA media_player control
+|   |   +-- mqtt_entities.py        # MQTT Discovery
+|   +-- main.py                     # Entry point
 |   +-- config.yaml                 # HA manifest (MUST stay at root)
 |   +-- Dockerfile
-|   +-- sonorium/                   # <-- SYNCED from shared/
-|       +-- plugins/                # <-- Synced
-|       +-- ha/                     # NOT synced - HA-specific
 |
 +-- scripts/
     +-- sync_shared.py              # Run before commits
-    +-- setup_hooks.py              # One-time hook setup
 ```
 
 ---
 
 ## PLATFORM-AGNOSTIC REQUIREMENTS
 
-Code in `shared/` must be 100% platform-agnostic:
+Code in `shared/sonorium/` must be 100% platform-agnostic:
 
-**FORBIDDEN in shared/ code:**
+**FORBIDDEN in shared/sonorium/ code:**
 - `sys.platform` checks
-- `os.environ.get("SUPERVISOR_TOKEN")` 
+- `os.environ.get("SUPERVISOR_TOKEN")`
 - `os.environ.get("APPDATA")`
 - Hardcoded paths like `/config`, `/data`, `~/.sonorium`
 - Direct imports of platform-specific modules
@@ -128,25 +146,28 @@ Code in `shared/` must be 100% platform-agnostic:
 
 ### Verification (Run Before Major Commits)
 ```bash
-# These should all return ZERO results in shared/
-grep -r "sys.platform" shared/
-grep -r "SUPERVISOR_TOKEN" shared/
-grep -r "APPDATA" shared/
-grep -r '"/config' shared/
-grep -r '"/data' shared/
+# These should all return ZERO results in shared/sonorium/
+grep -r "sys.platform" shared/sonorium/
+grep -r "SUPERVISOR_TOKEN" shared/sonorium/
+grep -r "APPDATA" shared/sonorium/
+grep -r '"/config' shared/sonorium/
+grep -r '"/data' shared/sonorium/
 ```
 
 ---
 
 ## TRUE PLUGIN ARCHITECTURE
 
-The current codebase has "plugins" that are decorative. True plugins must pass the **Acid Test**:
+Plugins must be self-contained ZIP files that pass the **Acid Test**:
 
 1. **Deletion test**: Delete plugin folder -> App starts, feature gone, NO ERRORS
-2. **No core grep**: `grep -r "sonos" shared/core/` returns ZERO
+2. **No core grep**: `grep -r "sonos" shared/sonorium/core/` returns ZERO
 3. **No core imports**: Core has ZERO imports from plugin folders
 
-**CURRENT PROBLEM**: `network_speakers.py` and `streaming.py` have 384+ hardcoded protocol references. These must be extracted into true plugins in `shared/plugins/`.
+Plugins include:
+- Speaker protocols (Sonos, AirPlay, DLNA, Chromecast, etc.)
+- Theme importers
+- Utility plugins
 
 ---
 
@@ -155,10 +176,9 @@ The current codebase has "plugins" that are decorative. True plugins must pass t
 When starting a session, read these files in order:
 
 1. **CLAUDE.md** - Project rules and git workflow
-2. **FOUNDATIONAL_CHANGES.md** - Target architecture
+2. **shared/ARCHITECTURE.md** - Architecture documentation
 3. **Summary.md** - Current project state
 4. **TODO.md** - Pending tasks
-5. **shared/README.md** - Sync system documentation
 
 Then verify:
 ```bash
@@ -173,7 +193,7 @@ python scripts/sync_shared.py --dry-run  # Check sync status
 
 Before committing, verify:
 
-- [ ] **Edited shared code in `shared/` only** (not in synced locations)
+- [ ] **Edited shared code in `shared/sonorium/` only** (not in synced locations)
 - [ ] **Ran sync script**: `python scripts/sync_shared.py`
 - [ ] **Git destination**: Pushing to `sonobleedingedge`
 - [ ] **No AI attribution**: No Claude mentions anywhere
@@ -201,17 +221,18 @@ git log sonobleedingedge/main -3        # Verify push
 ### File Locations
 | What | Where |
 |------|-------|
-| Shared plugins | `shared/plugins/` |
-| Windows platform code | `app/core/sonorium/platform/` |
-| HA platform code | `sonorium_addon/sonorium/ha/` |
+| Shared code (SOURCE) | `shared/sonorium/` |
+| Windows wrapper | `standalone_app/windows/wrapper/` |
+| Docker wrapper | `standalone_app/docker/wrapper/` |
+| HA wrapper | `sonorium_addon/ha/` |
 | Sync script | `scripts/sync_shared.py` |
 
 ---
 
 ## Remember
 
-1. **Edit shared code in `shared/` only**
+1. **Edit shared code in `shared/sonorium/` only**
 2. **Run sync before commit**
 3. **Push to sonobleedingedge only**
-4. **Platform-agnostic in shared/**
-5. **Update Summary.md after changes**
+4. **Platform-agnostic in shared/sonorium/**
+5. **Wrapper code lives OUTSIDE sonorium/ folder**
