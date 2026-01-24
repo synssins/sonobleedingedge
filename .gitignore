@@ -2,6 +2,9 @@
 BACKUP/
 backup/
 
+# Claude Code settings (local to developer)
+.claude/
+
 # Local documentation (reference only, not committed)
 docs/
 
