@@ -2623,9 +2623,9 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         if entity_id.startswith('audio_device.'):
             device_id = int(entity_id.split('.')[1])
             _app_instance.set_audio_device(device_id)
-        elif entity_id.startswith('network_speaker.'):
-            # Enable a network speaker
-            speaker_id = entity_id.replace('network_speaker.', '')
+        else:
+            # Enable a network speaker (handles both with and without prefix)
+            speaker_id = entity_id.replace('network_speaker.', '') if entity_id.startswith('network_speaker.') else entity_id
             enabled = set(_app_instance.get_enabled_network_speakers())
             if speaker_id not in enabled:
                 enabled.add(speaker_id)
@@ -2640,9 +2640,12 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     async def disable_speaker(request: dict):
         """Disable a speaker (remove from enabled list)."""
         entity_id = request.get('entity_id', '')
-        if entity_id.startswith('network_speaker.'):
-            # Disable a network speaker
-            speaker_id = entity_id.replace('network_speaker.', '')
+        if entity_id.startswith('audio_device.'):
+            # Disabling audio device - just ignore (can't disable local audio this way)
+            pass
+        else:
+            # Disable a network speaker (handles both with and without prefix)
+            speaker_id = entity_id.replace('network_speaker.', '') if entity_id.startswith('network_speaker.') else entity_id
             enabled = set(_app_instance.get_enabled_network_speakers())
 
             # If enabled list is empty (meaning "all enabled" by default),
