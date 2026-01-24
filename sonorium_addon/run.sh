@@ -28,11 +28,5 @@ bashio::log.info "Configuration:"
 bashio::log.info "  Log Level: ${SONORIUM_LOG_LEVEL}"
 bashio::log.info "  MQTT Host: ${SONORIUM_MQTT_HOST:-not configured}"
 
-# Test Python environment
-bashio::log.info "Testing Python imports..."
-if ! python3 -c "import numpy; import av; print('OK')" 2>&1; then
-    bashio::log.error "FAILED: Python imports"
-fi
-
 bashio::log.info "Launching Sonorium..."
-exec python3 -m sonorium.entrypoint
+exec python3 /app/main.py

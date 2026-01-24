@@ -6,32 +6,29 @@ FROM ${BUILD_FROM}
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-numpy \
     ffmpeg
 
 WORKDIR /app
 
 # Install Python dependencies
 RUN pip3 install --no-cache-dir --break-system-packages \
-    pyyaml \
-    appdirs \
-    cachetools \
     fastapi \
-    uvicorn \
+    uvicorn[standard] \
     pydantic \
-    pydantic-settings \
     httpx \
-    homeassistant_api \
-    websockets \
+    aiofiles \
     python-multipart \
-    soco \
     paho-mqtt \
-    pychromecast \
-    pyatv \
-    'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]'
+    zeroconf
 
-# Copy application code
+# Copy shared code (synced from shared/sonorium/)
 COPY sonorium/ /app/sonorium/
+
+# Copy HA-specific wrapper code (NOT synced)
+COPY ha/ /app/ha/
+
+# Copy entry point (wrapper code)
+COPY main.py /app/main.py
 
 # Copy assets
 COPY logo.png icon.png /app/
@@ -43,7 +40,7 @@ COPY themes/ /app/themes/
 ENV PYTHONPATH="/app:${PYTHONPATH}" \
     PYTHONUNBUFFERED=1
 
-# Copy entrypoint
+# Copy run script
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 

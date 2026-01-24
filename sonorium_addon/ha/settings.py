@@ -28,7 +28,7 @@ class HASettings:
     """Settings loaded from Home Assistant addon options."""
 
     # Web server
-    port: int = 8099
+    port: int = 8008
 
     # MQTT
     mqtt: MQTTSettings = field(default_factory=MQTTSettings)
@@ -77,7 +77,7 @@ class HASettings:
         themes_path = options.get("themes_path", "/config/sonorium/themes")
 
         return cls(
-            port=options.get("port", 8099),
+            port=options.get("port", 8008),
             mqtt=mqtt,
             discovery_interval=options.get("discovery_interval", 300),
             default_volume=options.get("default_volume", 0.8),
@@ -98,7 +98,7 @@ class HASettings:
         )
 
         return cls(
-            port=int(os.environ.get("SONORIUM_PORT", "8099")),
+            port=int(os.environ.get("SONORIUM_PORT", "8008")),
             mqtt=mqtt,
             discovery_interval=int(os.environ.get("DISCOVERY_INTERVAL", "300")),
             default_volume=float(os.environ.get("DEFAULT_VOLUME", "0.8")),
