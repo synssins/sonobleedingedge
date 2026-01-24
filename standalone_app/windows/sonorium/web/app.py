@@ -482,11 +482,11 @@ class SonoriumApp:
                 if audio_path is None:
                     audio_path = Path("/media/sonorium")
 
-                self._plugin_manager = PluginManager(self._state_store, audio_path=audio_path)
+                self._plugin_manager = PluginManager()
                 # Note: Plugin initialization is async, so we start it in background
                 import asyncio
                 asyncio.create_task(self._plugin_manager.initialize())
-                logger.info(f"Plugin manager created with audio_path={audio_path}, initialization started")
+                logger.info("Plugin manager created, initialization started")
             except ImportError:
                 logger.info("Plugin manager not available")
                 self._plugin_manager = None
