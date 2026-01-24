@@ -1,415 +1,458 @@
 """
-State management - Single source of truth.
+Sonorium State Management
 
-All application state flows through this module. Components read state
-from here and dispatch changes through the StateManager.
+Handles persistence of sessions, speaker groups, and settings to JSON.
+State is stored in a platform-specific location determined by the PathProvider.
+
+CORE CODE: This module is shared across all platforms.
 """
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Callable, Optional
+from __future__ import annotations
+
 import json
-import asyncio
-import logging
-from contextlib import contextmanager
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+from enum import Enum
 
-from ..models import (
-    Speaker,
-    Theme,
-    Session,
-    Channel,
-    Settings,
-)
-
-logger = logging.getLogger(__name__)
+from ..obs import logger
 
 
-# Type for state change callbacks
-StateChangeCallback = Callable[["SonoriumState", str], None]
+def get_default_state_path() -> Path:
+    """Get the default state file path based on platform."""
+    try:
+        # Use the paths module which handles platform detection
+        from ..paths import paths
+        return paths.state_file
+    except ImportError:
+        # Fallback for standalone without paths module
+        return Path.home() / ".sonorium" / "state.json"
+
+
+class NameSource(str, Enum):
+    """How a session name was determined."""
+    AUTO_FLOOR = "auto_floor"      # Named after selected floor
+    AUTO_AREA = "auto_area"        # Named after selected area(s)
+    AUTO_GROUP = "auto_group"      # Named after speaker group
+    CUSTOM = "custom"              # User-defined name
+
+
+@dataclass
+class CycleConfig:
+    """
+    Theme cycling configuration for a session.
+
+    When enabled, the session will automatically rotate through themes
+    at the specified interval.
+    """
+
+    enabled: bool = False
+    interval_minutes: int = 60  # How often to change themes
+    randomize: bool = False     # True = random order, False = sequential
+
+    # Optional: specific themes to cycle through (empty = all themes)
+    theme_ids: list[str] = field(default_factory=list)
+
+    # Runtime state (not persisted)
+    current_index: int = 0      # Current position in theme list
+    last_change: Optional[str] = None  # ISO timestamp of last theme change
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "interval_minutes": self.interval_minutes,
+            "randomize": self.randomize,
+            "theme_ids": self.theme_ids,
+            # Don't persist runtime state
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CycleConfig:
+        if data is None:
+            return cls()
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class SonoriumSettings:
+    """Global settings for Sonorium."""
+
+    default_volume: int = 60
+    crossfade_duration: float = 3.0
+    max_groups: int = 20
+    entity_prefix: str = "sonorium"
+    show_in_sidebar: bool = True
+    auto_create_quick_play: bool = True
+
+    # Master output gain (0-100, applied to all streams)
+    master_gain: int = 60
+
+    # Default cycling settings (applied to new sessions)
+    default_cycle_interval: int = 60  # minutes
+    default_cycle_randomize: bool = False
+
+    # Speaker availability - only these speakers are visible/targetable in Sonorium
+    # Empty list = all speakers enabled (backwards compatibility)
+    enabled_speakers: list[str] = field(default_factory=list)
+
+    # Favorite themes (by theme ID)
+    favorite_themes: list[str] = field(default_factory=list)
+
+    # Theme categories (user-defined groupings)
+    # List of category names that have been created
+    theme_categories: list[str] = field(default_factory=list)
+
+    # Theme to categories mapping
+    # Format: {"theme_id": ["Weather", "Nature"]}
+    theme_category_assignments: dict[str, list[str]] = field(default_factory=dict)
+
+    # Manual speaker area assignments (fallback when HA areas unavailable)
+    # Format: {"area_name": ["media_player.entity1", "media_player.entity2"]}
+    custom_speaker_areas: dict[str, list[str]] = field(default_factory=dict)
+
+    # Per-track presence settings for themes (how often track plays in mix)
+    # Format: {"theme_id": {"track_name": 0.5, "track_name2": 1.0}}
+    # Presence: 1.0 = always playing, 0.5 = plays ~50% of time, 0.0 = never plays
+    track_presence: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    # Per-track mute/enabled settings for themes
+    # Format: {"theme_id": {"track_name": false}} - only stores disabled tracks
+    track_muted: dict[str, dict[str, bool]] = field(default_factory=dict)
+
+    # Per-track volume settings (amplitude control, independent of presence)
+    # Format: {"theme_id": {"track_name": 0.8}} - 0.0 to 1.0, default 1.0
+    track_volume: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    # Per-track playback mode settings
+    # Format: {"theme_id": {"track_name": "sparse"}} - auto/continuous/sparse/presence
+    track_playback_mode: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    # Per-track seamless loop settings (disable crossfade)
+    # Format: {"theme_id": {"track_name": true}} - only stores tracks with seamless enabled
+    track_seamless_loop: dict[str, dict[str, bool]] = field(default_factory=dict)
+
+    # Per-track exclusive playback settings (mutual exclusion group)
+    # Format: {"theme_id": {"track_name": true}} - only stores tracks with exclusive enabled
+    # Tracks marked exclusive will not play simultaneously - only one can play at a time
+    track_exclusive: dict[str, dict[str, bool]] = field(default_factory=dict)
+
+    # Plugin settings (keyed by plugin_id)
+    # Format: {"ambient_mixer": {"download_path": "/media/sonorium", "auto_create_metadata": true}}
+    plugin_settings: dict[str, dict] = field(default_factory=dict)
+
+    # Enabled plugins list (by plugin_id)
+    enabled_plugins: list[str] = field(default_factory=list)
+
+    # Explicitly disabled plugins (prevents auto-enable for speaker plugins)
+    # Speaker plugins are auto-enabled by default unless in this list
+    disabled_plugins: list[str] = field(default_factory=list)
+
+    # Deleted builtin plugins (prevents auto-reinstall on startup)
+    # When a user deletes a builtin plugin, its ID is added here so it won't be restored
+    deleted_builtin_plugins: list[str] = field(default_factory=list)
+
+    # Platform default plugins initialization flag
+    # When False, auto-install of platform default plugins will run on startup
+    plugins_initialized: bool = False
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SonoriumSettings:
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class SpeakerSelection:
+    """
+    Inline speaker selection (not saved as a group).
+    Used for ad-hoc selections in sessions.
+    """
+
+    # Additive selections (union of all)
+    include_floors: list[str] = field(default_factory=list)
+    include_areas: list[str] = field(default_factory=list)
+    include_speakers: list[str] = field(default_factory=list)
+
+    # Subtractive exclusions
+    exclude_areas: list[str] = field(default_factory=list)
+    exclude_speakers: list[str] = field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        """Check if no speakers are selected."""
+        return (
+            not self.include_floors and
+            not self.include_areas and
+            not self.include_speakers
+        )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SpeakerSelection:
+        if data is None:
+            return None
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class SpeakerGroup:
+    """
+    A saved speaker selection configuration.
+    Can be reused across multiple sessions.
+    """
+
+    id: str
+    name: str
+    icon: str = "mdi:speaker-group"
+
+    # Additive selections (union of all)
+    include_floors: list[str] = field(default_factory=list)
+    include_areas: list[str] = field(default_factory=list)
+    include_speakers: list[str] = field(default_factory=list)
+
+    # Subtractive exclusions
+    exclude_areas: list[str] = field(default_factory=list)
+    exclude_speakers: list[str] = field(default_factory=list)
+
+    created_at: str = ""  # ISO format
+    updated_at: str = ""  # ISO format
+
+    def __post_init__(self):
+        now = datetime.utcnow().isoformat()
+        if not self.created_at:
+            self.created_at = now
+        if not self.updated_at:
+            self.updated_at = now
+
+    def touch(self):
+        """Update the updated_at timestamp."""
+        self.updated_at = datetime.utcnow().isoformat()
+
+    def to_selection(self) -> SpeakerSelection:
+        """Convert to a SpeakerSelection for resolution."""
+        return SpeakerSelection(
+            include_floors=self.include_floors,
+            include_areas=self.include_areas,
+            include_speakers=self.include_speakers,
+            exclude_areas=self.exclude_areas,
+            exclude_speakers=self.exclude_speakers,
+        )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SpeakerGroup:
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class Session:
+    """
+    An active or configured playback session.
+    Each session plays one theme to one speaker group/selection.
+    """
+
+    id: str
+    name: str
+    name_source: NameSource = NameSource.AUTO_AREA
+
+    # What to play
+    theme_id: Optional[str] = None
+    preset_id: Optional[str] = None  # Theme preset to apply
+
+    # Where to play - either a saved group OR ad-hoc selection
+    speaker_group_id: Optional[str] = None
+    adhoc_selection: Optional[SpeakerSelection] = None
+
+    # Playback state
+    volume: int = 60
+    is_playing: bool = False
+
+    # Theme cycling configuration
+    cycle_config: CycleConfig = field(default_factory=CycleConfig)
+
+    # Metadata
+    created_at: str = ""  # ISO format
+    last_played_at: Optional[str] = None  # ISO format
+
+    def __post_init__(self):
+        if not self.created_at:
+            self.created_at = datetime.utcnow().isoformat()
+
+        # Convert name_source from string if needed
+        if isinstance(self.name_source, str):
+            self.name_source = NameSource(self.name_source)
+
+        # Convert adhoc_selection from dict if needed
+        if isinstance(self.adhoc_selection, dict):
+            self.adhoc_selection = SpeakerSelection.from_dict(self.adhoc_selection)
+
+        # Convert cycle_config from dict if needed
+        if isinstance(self.cycle_config, dict):
+            self.cycle_config = CycleConfig.from_dict(self.cycle_config)
+
+    def get_entity_slug(self) -> str:
+        """Generate HA entity slug from name."""
+        # "Bedroom Level" -> "bedroom_level"
+        # "Night Mode Speakers" -> "night_mode_speakers"
+        slug = self.name.lower()
+        slug = slug.replace(" ", "_")
+        slug = slug.replace("-", "_")
+        # Remove non-alphanumeric except underscore
+        slug = "".join(c for c in slug if c.isalnum() or c == "_")
+        # Collapse multiple underscores
+        while "__" in slug:
+            slug = slug.replace("__", "_")
+        return slug.strip("_")
+
+    def mark_played(self):
+        """Update last_played_at timestamp."""
+        self.last_played_at = datetime.utcnow().isoformat()
+
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        data['name_source'] = self.name_source.value
+        # Handle cycle_config separately to avoid nested asdict issues
+        data['cycle_config'] = self.cycle_config.to_dict() if self.cycle_config else None
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Session:
+        # Handle nested objects
+        if 'adhoc_selection' in data and data['adhoc_selection'] is not None:
+            if isinstance(data['adhoc_selection'], dict):
+                data['adhoc_selection'] = SpeakerSelection.from_dict(data['adhoc_selection'])
+        if 'cycle_config' in data and data['cycle_config'] is not None:
+            if isinstance(data['cycle_config'], dict):
+                data['cycle_config'] = CycleConfig.from_dict(data['cycle_config'])
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 @dataclass
 class SonoriumState:
     """
-    Complete application state.
-
-    This is the single source of truth for all Sonorium state.
+    Complete persisted state for Sonorium.
+    Saved to platform-specific location.
     """
 
-    # Discovered speakers
-    speakers: dict[str, Speaker] = field(default_factory=dict)
-
-    # Available themes
-    themes: dict[str, Theme] = field(default_factory=dict)
-
-    # Active sessions
+    settings: SonoriumSettings = field(default_factory=SonoriumSettings)
+    speaker_groups: dict[str, SpeakerGroup] = field(default_factory=dict)
     sessions: dict[str, Session] = field(default_factory=dict)
 
-    # Channels/zones
-    channels: dict[str, Channel] = field(default_factory=dict)
-
-    # Settings
-    settings: Settings = field(default_factory=Settings)
-
-    # Enabled speaker IDs (convenience set for fast lookup)
-    _enabled_speakers: set[str] = field(default_factory=set)
+    # Version for future migrations
+    version: int = 1
 
     def to_dict(self) -> dict:
-        """Serialize state to dictionary."""
         return {
-            "speakers": {k: v.to_dict() for k, v in self.speakers.items()},
-            "themes": {k: v.to_dict() for k, v in self.themes.items()},
-            "sessions": {k: v.to_dict() for k, v in self.sessions.items()},
-            "channels": {k: v.to_dict() for k, v in self.channels.items()},
+            "version": self.version,
             "settings": self.settings.to_dict(),
-            "enabled_speakers": list(self._enabled_speakers),
+            "speaker_groups": {k: v.to_dict() for k, v in self.speaker_groups.items()},
+            "sessions": {k: v.to_dict() for k, v in self.sessions.items()},
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SonoriumState":
-        """Deserialize state from dictionary."""
+    def from_dict(cls, data: dict) -> SonoriumState:
         state = cls()
+        state.version = data.get("version", 1)
 
-        # Load speakers
-        for speaker_id, speaker_data in data.get("speakers", {}).items():
-            state.speakers[speaker_id] = Speaker.from_dict(speaker_data)
+        if "settings" in data:
+            state.settings = SonoriumSettings.from_dict(data["settings"])
 
-        # Load themes
-        for theme_id, theme_data in data.get("themes", {}).items():
-            state.themes[theme_id] = Theme.from_dict(theme_data)
+        if "speaker_groups" in data:
+            for k, v in data["speaker_groups"].items():
+                state.speaker_groups[k] = SpeakerGroup.from_dict(v)
 
-        # Load sessions (only active ones)
-        for session_id, session_data in data.get("sessions", {}).items():
-            session = Session.from_dict(session_data)
-            if session.is_active:
-                state.sessions[session_id] = session
-
-        # Load channels
-        for channel_id, channel_data in data.get("channels", {}).items():
-            state.channels[channel_id] = Channel.from_dict(channel_data)
-
-        # Load settings
-        state.settings = Settings.from_dict(data.get("settings", {}))
-
-        # Load enabled speakers
-        state._enabled_speakers = set(data.get("enabled_speakers", []))
-
-        # Sync enabled state to speaker objects
-        for speaker_id in state._enabled_speakers:
-            if speaker_id in state.speakers:
-                state.speakers[speaker_id].enabled = True
+        if "sessions" in data:
+            for k, v in data["sessions"].items():
+                state.sessions[k] = Session.from_dict(v)
 
         return state
 
 
-class StateManager:
+class StateStore:
     """
-    Manages application state with persistence and change notifications.
-
-    Usage:
-        manager = StateManager(config_path="/path/to/config.json")
-        await manager.load()
-
-        # Read state
-        speakers = manager.state.speakers
-
-        # Modify state (notifies listeners)
-        manager.enable_speaker("speaker_1")
-
-        # Subscribe to changes
-        manager.on_change(lambda state, key: print(f"Changed: {key}"))
+    Manages loading and saving of Sonorium state.
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
-        self._state = SonoriumState()
-        self._config_path = config_path
-        self._callbacks: list[StateChangeCallback] = []
-        self._lock = asyncio.Lock()
-        self._dirty = False
-        self._save_task: Optional[asyncio.Task] = None
+    def __init__(self, state_file: Path = None):
+        self.state_file = state_file or get_default_state_path()
+        self.state: SonoriumState = SonoriumState()
 
-    @property
-    def state(self) -> SonoriumState:
-        """Get current state (read-only access)."""
-        return self._state
-
-    # ─────────────────────────────────────────────────────────────
-    # Persistence
-    # ─────────────────────────────────────────────────────────────
-
-    async def load(self) -> None:
-        """Load state from disk."""
-        if self._config_path and self._config_path.exists():
-            try:
-                async with self._lock:
-                    data = json.loads(self._config_path.read_text(encoding="utf-8"))
-                    self._state = SonoriumState.from_dict(data)
-                logger.info(f"Loaded state from {self._config_path}")
-            except Exception as e:
-                logger.error(f"Failed to load state: {e}")
-                self._state = SonoriumState()
-        else:
-            logger.info("No existing state file, starting fresh")
-            self._state = SonoriumState()
-
-    async def save(self) -> None:
-        """Save state to disk."""
-        if not self._config_path:
-            return
+    @logger.instrument("Loading state from {self.state_file}...")
+    def load(self) -> SonoriumState:
+        """Load state from disk, or create default if not exists."""
+        if not self.state_file.exists():
+            logger.info("  No existing state file, using defaults")
+            self.state = SonoriumState()
+            return self.state
 
         try:
-            async with self._lock:
-                self._config_path.parent.mkdir(parents=True, exist_ok=True)
-                self._config_path.write_text(
-                    json.dumps(self._state.to_dict(), indent=2),
-                    encoding="utf-8"
-                )
-                self._dirty = False
-            logger.debug(f"Saved state to {self._config_path}")
+            data = json.loads(self.state_file.read_text())
+            self.state = SonoriumState.from_dict(data)
+
+            # Reset all sessions to stopped state on startup
+            # (playback doesn't survive addon restarts)
+            for session in self.state.sessions.values():
+                if session.is_playing:
+                    session.is_playing = False
+                    logger.info(f"  Reset session '{session.name}' to stopped state")
+
+            logger.info(f"  Loaded {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
         except Exception as e:
-            logger.error(f"Failed to save state: {e}")
+            logger.error(f"  Failed to load state: {e}")
+            self.state = SonoriumState()
 
-    def _mark_dirty(self) -> None:
-        """Mark state as needing save, schedule debounced save."""
-        self._dirty = True
-        if self._save_task is None or self._save_task.done():
-            self._save_task = asyncio.create_task(self._debounced_save())
+        return self.state
 
-    async def _debounced_save(self) -> None:
-        """Save after a short delay (debounce rapid changes)."""
-        await asyncio.sleep(1.0)
-        if self._dirty:
-            await self.save()
+    @logger.instrument("Saving state to {self.state_file}...")
+    def save(self):
+        """Persist state to disk."""
+        try:
+            # Ensure directory exists
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # ─────────────────────────────────────────────────────────────
-    # Change notifications
-    # ─────────────────────────────────────────────────────────────
+            # Write with pretty formatting
+            data = self.state.to_dict()
+            self.state_file.write_text(json.dumps(data, indent=2))
 
-    def on_change(self, callback: StateChangeCallback) -> Callable[[], None]:
-        """
-        Subscribe to state changes.
+            logger.info(f"  Saved {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
+        except Exception as e:
+            logger.error(f"  Failed to save state: {e}")
+            raise
 
-        Returns a function to unsubscribe.
-        """
-        self._callbacks.append(callback)
+    # Convenience accessors
+    @property
+    def settings(self) -> SonoriumSettings:
+        return self.state.settings
 
-        def unsubscribe():
-            self._callbacks.remove(callback)
+    @property
+    def sessions(self) -> dict[str, Session]:
+        return self.state.sessions
 
-        return unsubscribe
+    @property
+    def speaker_groups(self) -> dict[str, SpeakerGroup]:
+        return self.state.speaker_groups
 
-    def _notify(self, key: str) -> None:
-        """Notify listeners of state change."""
-        for callback in self._callbacks:
-            try:
-                callback(self._state, key)
-            except Exception as e:
-                logger.error(f"Error in state change callback: {e}")
+    # Plugin manager compatibility properties
+    # These proxy to settings so StateStore can be passed directly to PluginManager
+    @property
+    def enabled_plugins(self) -> list[str]:
+        return self.state.settings.enabled_plugins
 
-    # ─────────────────────────────────────────────────────────────
-    # Speaker operations
-    # ─────────────────────────────────────────────────────────────
+    @property
+    def disabled_plugins(self) -> list[str]:
+        return self.state.settings.disabled_plugins
 
-    def add_speaker(self, speaker: Speaker) -> None:
-        """Add or update a speaker."""
-        existing = self._state.speakers.get(speaker.id)
-        if existing:
-            # Merge with existing (preserve enabled state, combine sources)
-            speaker = existing.merge_with(speaker)
-            speaker.enabled = speaker.id in self._state._enabled_speakers
+    @property
+    def plugin_settings(self) -> dict:
+        return self.state.settings.plugin_settings
 
-        self._state.speakers[speaker.id] = speaker
-        self._mark_dirty()
-        self._notify("speakers")
-
-    def remove_speaker(self, speaker_id: str) -> bool:
-        """Remove a speaker. Returns True if removed."""
-        if speaker_id in self._state.speakers:
-            del self._state.speakers[speaker_id]
-            self._state._enabled_speakers.discard(speaker_id)
-            self._mark_dirty()
-            self._notify("speakers")
-            return True
-        return False
-
-    def enable_speaker(self, speaker_id: str) -> bool:
-        """Enable a speaker. Returns True if state changed."""
-        if speaker_id in self._state.speakers:
-            if speaker_id not in self._state._enabled_speakers:
-                self._state._enabled_speakers.add(speaker_id)
-                self._state.speakers[speaker_id].enabled = True
-                self._mark_dirty()
-                self._notify("speakers")
-                return True
-        return False
-
-    def disable_speaker(self, speaker_id: str) -> bool:
-        """Disable a speaker. Returns True if state changed."""
-        if speaker_id in self._state._enabled_speakers:
-            self._state._enabled_speakers.discard(speaker_id)
-            if speaker_id in self._state.speakers:
-                self._state.speakers[speaker_id].enabled = False
-            self._mark_dirty()
-            self._notify("speakers")
-            return True
-        return False
-
-    def enable_all_speakers(self) -> int:
-        """Enable all speakers. Returns count of newly enabled."""
-        count = 0
-        for speaker_id in self._state.speakers:
-            if speaker_id not in self._state._enabled_speakers:
-                self._state._enabled_speakers.add(speaker_id)
-                self._state.speakers[speaker_id].enabled = True
-                count += 1
-        if count > 0:
-            self._mark_dirty()
-            self._notify("speakers")
-        return count
-
-    def disable_all_speakers(self) -> int:
-        """Disable all speakers. Returns count of newly disabled."""
-        count = len(self._state._enabled_speakers)
-        for speaker_id in self._state._enabled_speakers:
-            if speaker_id in self._state.speakers:
-                self._state.speakers[speaker_id].enabled = False
-        self._state._enabled_speakers.clear()
-        if count > 0:
-            self._mark_dirty()
-            self._notify("speakers")
-        return count
-
-    def get_enabled_speakers(self) -> list[Speaker]:
-        """Get list of enabled speakers."""
-        return [
-            self._state.speakers[sid]
-            for sid in self._state._enabled_speakers
-            if sid in self._state.speakers
-        ]
-
-    def is_speaker_enabled(self, speaker_id: str) -> bool:
-        """Check if speaker is enabled."""
-        return speaker_id in self._state._enabled_speakers
-
-    def set_speaker_volume(self, speaker_id: str, volume: float) -> bool:
-        """Set speaker volume. Returns True if found."""
-        if speaker_id in self._state.speakers:
-            self._state.speakers[speaker_id].volume = max(0.0, min(1.0, volume))
-            self._mark_dirty()
-            self._notify("speakers")
-            return True
-        return False
-
-    # ─────────────────────────────────────────────────────────────
-    # Theme operations
-    # ─────────────────────────────────────────────────────────────
-
-    def add_theme(self, theme: Theme) -> None:
-        """Add or update a theme."""
-        self._state.themes[theme.id] = theme
-        self._notify("themes")
-
-    def remove_theme(self, theme_id: str) -> bool:
-        """Remove a theme. Returns True if removed."""
-        if theme_id in self._state.themes:
-            del self._state.themes[theme_id]
-            self._notify("themes")
-            return True
-        return False
-
-    def get_theme(self, theme_id: str) -> Optional[Theme]:
-        """Get theme by ID."""
-        return self._state.themes.get(theme_id)
-
-    # ─────────────────────────────────────────────────────────────
-    # Session operations
-    # ─────────────────────────────────────────────────────────────
-
-    def add_session(self, session: Session) -> None:
-        """Add a new session."""
-        self._state.sessions[session.id] = session
-        self._mark_dirty()
-        self._notify("sessions")
-
-    def remove_session(self, session_id: str) -> bool:
-        """Remove a session. Returns True if removed."""
-        if session_id in self._state.sessions:
-            del self._state.sessions[session_id]
-            self._mark_dirty()
-            self._notify("sessions")
-            return True
-        return False
-
-    def get_session(self, session_id: str) -> Optional[Session]:
-        """Get session by ID."""
-        return self._state.sessions.get(session_id)
-
-    def get_active_sessions(self) -> list[Session]:
-        """Get all active sessions."""
-        return [s for s in self._state.sessions.values() if s.is_active]
-
-    def get_sessions_for_speaker(self, speaker_id: str) -> list[Session]:
-        """Get sessions that include a specific speaker."""
-        return [
-            s for s in self._state.sessions.values()
-            if speaker_id in s.get_speaker_ids() and s.is_active
-        ]
-
-    # ─────────────────────────────────────────────────────────────
-    # Channel operations
-    # ─────────────────────────────────────────────────────────────
-
-    def add_channel(self, channel: Channel) -> None:
-        """Add or update a channel."""
-        self._state.channels[channel.id] = channel
-        self._mark_dirty()
-        self._notify("channels")
-
-    def remove_channel(self, channel_id: str) -> bool:
-        """Remove a channel. Returns True if removed."""
-        if channel_id in self._state.channels:
-            del self._state.channels[channel_id]
-            self._mark_dirty()
-            self._notify("channels")
-            return True
-        return False
-
-    def get_channel(self, channel_id: str) -> Optional[Channel]:
-        """Get channel by ID."""
-        return self._state.channels.get(channel_id)
-
-    # ─────────────────────────────────────────────────────────────
-    # Settings operations
-    # ─────────────────────────────────────────────────────────────
-
-    def update_settings(self, **kwargs) -> None:
-        """Update settings."""
-        for key, value in kwargs.items():
-            if hasattr(self._state.settings, key):
-                setattr(self._state.settings, key, value)
-        self._mark_dirty()
-        self._notify("settings")
-
-    def get_settings(self) -> Settings:
-        """Get current settings."""
-        return self._state.settings
-
-
-# Global state manager instance
-_state_manager: Optional[StateManager] = None
-
-
-def get_state_manager() -> StateManager:
-    """Get the global state manager instance."""
-    global _state_manager
-    if _state_manager is None:
-        raise RuntimeError("State manager not initialized. Call init_state_manager() first.")
-    return _state_manager
-
-
-async def init_state_manager(config_path: Optional[Path] = None) -> StateManager:
-    """Initialize the global state manager."""
-    global _state_manager
-    _state_manager = StateManager(config_path)
-    await _state_manager.load()
-    return _state_manager
+    @property
+    def audio_path(self) -> str:
+        """Return audio path from settings, with fallback to default."""
+        return getattr(self.state.settings, 'audio_path', '/media/sonorium')
