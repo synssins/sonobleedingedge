@@ -1,0 +1,26 @@
+name: Sonorium
+version: "0.1.0"
+slug: sonorium
+description: Multi-zone ambient soundscape mixer for Home Assistant
+url: https://github.com/synssins/sonobleedingedge
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+homeassistant_api: true
+hassio_api: true
+audio: true
+map:
+  - type: share
+    read_only: false
+  - type: media
+    read_only: true
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Web UI
+options:
+  log_level: info
+schema:
+  log_level: list(trace|debug|info|warning|error)
