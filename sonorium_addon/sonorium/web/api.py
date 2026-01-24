@@ -141,6 +141,7 @@ class ChannelCreateRequest(BaseModel):
 class ChannelUpdateRequest(BaseModel):
     """Request to update a channel."""
     name: Optional[str] = None
+    theme_id: Optional[str] = None
     volume: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     muted: Optional[bool] = None
     add_speakers: Optional[list[str]] = None
@@ -509,6 +510,9 @@ async def update_channel(
     if request.name is not None:
         channel.name = request.name
 
+    if request.theme_id is not None:
+        channel.theme_id = request.theme_id
+
     if request.volume is not None:
         channel.volume = request.volume
 
@@ -579,7 +583,7 @@ async def stop_channel(channel_id: str, manager: StateManager = Depends(get_mana
     if channel.session_id:
         await stop_session(channel.session_id, manager)
         channel.session_id = None
-        channel.theme_id = None
+        # Keep theme_id so user's selection persists after stopping
         manager.add_channel(channel)
 
     return MessageResponse(message=f"Channel {channel_id} stopped")

@@ -1,16 +1,20 @@
 /**
  * Sonorium Web UI Application
  *
- * Main application logic for the web interface.
+ * Main application logic for the sidebar-based web interface.
+ * Function names and element IDs match index.html exactly.
  */
 
 // Application State
 const state = {
     speakers: [],
     themes: [],
+    channels: [],
     sessions: [],
     settings: {},
-    selectedTheme: null,
+    status: {},
+    currentView: 'channels',
+    editingChannelId: null,
     refreshInterval: null,
 };
 
@@ -25,59 +29,144 @@ document.addEventListener('DOMContentLoaded', () => {
 async function initializeApp() {
     console.log('Sonorium UI initializing...');
 
-    // Set up event listeners
-    setupEventListeners();
+    // Set up volume slider listener
+    const volumeSlider = document.getElementById('channel-volume');
+    if (volumeSlider) {
+        volumeSlider.addEventListener('input', function() {
+            document.getElementById('channel-volume-display').textContent = this.value + '%';
+        });
+    }
 
     // Load initial data
     await Promise.all([
         loadSpeakers(),
         loadThemes(),
+        loadChannels(),
         loadSessions(),
+        loadStatus(),
         loadSettings(),
     ]);
 
-    // Start refresh interval
+    // Show initial view
+    showView('channels');
+
+    // Start refresh interval (every 5 seconds)
     state.refreshInterval = setInterval(refreshData, 5000);
 
     console.log('Sonorium UI ready');
 }
 
-function setupEventListeners() {
-    // Header controls
-    document.getElementById('master-volume').addEventListener('input', onMasterVolumeChange);
-    document.getElementById('btn-settings').addEventListener('click', openSettingsModal);
-
-    // Speaker controls
-    document.getElementById('btn-discover').addEventListener('click', onDiscoverSpeakers);
-    document.getElementById('btn-enable-all').addEventListener('click', onEnableAllSpeakers);
-    document.getElementById('btn-disable-all').addEventListener('click', onDisableAllSpeakers);
-
-    // Theme controls
-    document.getElementById('theme-search').addEventListener('input', filterThemes);
-    document.getElementById('theme-category').addEventListener('change', filterThemes);
-
-    // Session controls
-    document.getElementById('btn-stop-all').addEventListener('click', onStopAllSessions);
-
-    // Modal controls
-    document.getElementById('btn-play-theme').addEventListener('click', onPlaySelectedTheme);
-    document.getElementById('btn-save-settings').addEventListener('click', onSaveSettings);
-
-    // Close modals on backdrop click
-    document.querySelectorAll('.modal').forEach(modal => {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.classList.add('hidden');
-            }
-        });
-    });
-}
-
 async function refreshData() {
     await Promise.all([
         loadSpeakers(),
+        loadChannels(),
         loadSessions(),
+        loadStatus(),
     ]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Navigation
+// ─────────────────────────────────────────────────────────────────────────
+
+function showView(viewId) {
+    state.currentView = viewId;
+
+    // Hide all views
+    document.querySelectorAll('.view').forEach(v => {
+        v.classList.remove('active');
+    });
+
+    // Show target view
+    const targetView = document.getElementById(`view-${viewId}`);
+    if (targetView) {
+        targetView.classList.add('active');
+    }
+
+    // Update nav items
+    document.querySelectorAll('.nav-item, .nav-sub-item').forEach(item => {
+        item.classList.remove('active');
+    });
+
+    // Find and activate matching nav item
+    const navItems = document.querySelectorAll('.nav-item, .nav-sub-item');
+    navItems.forEach(item => {
+        const onclick = item.getAttribute('onclick') || '';
+        if (onclick.includes(`showView('${viewId}')`)) {
+            item.classList.add('active');
+        }
+    });
+
+    // Update header title
+    const titles = {
+        'channels': 'Channels',
+        'themes': 'Themes',
+        'settings-speakers': 'Speakers',
+        'settings-audio': 'Audio Settings',
+        'status': 'Status',
+    };
+    document.getElementById('view-title').textContent = titles[viewId] || viewId;
+
+    // Update header actions based on view
+    updateViewActions(viewId);
+
+    // Close sidebar on mobile
+    closeSidebar();
+}
+
+function updateViewActions(viewId) {
+    const container = document.getElementById('view-actions');
+
+    switch (viewId) {
+        case 'channels':
+            container.innerHTML = `
+                <button class="btn btn-primary" onclick="openNewChannelModal()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    New Channel
+                </button>
+            `;
+            break;
+        case 'themes':
+            container.innerHTML = `
+                <button class="btn btn-secondary" onclick="refreshThemes()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M23 4v6h-6"/>
+                        <path d="M1 20v-6h6"/>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                    Refresh
+                </button>
+            `;
+            break;
+        default:
+            container.innerHTML = '';
+    }
+}
+
+function toggleNavSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    if (section) {
+        section.classList.toggle('expanded');
+    }
+}
+
+function toggleSidebar() {
+    document.body.classList.toggle('sidebar-open');
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('open');
+    }
+}
+
+function closeSidebar() {
+    document.body.classList.remove('sidebar-open');
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) {
+        sidebar.classList.remove('open');
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -89,6 +178,7 @@ async function loadSpeakers() {
         const speakers = await api.getSpeakers();
         state.speakers = Array.isArray(speakers) ? speakers : [];
         renderSpeakers();
+        updateChannelModalSpeakers();
     } catch (error) {
         console.error('Failed to load speakers:', error);
     }
@@ -96,38 +186,43 @@ async function loadSpeakers() {
 
 function renderSpeakers() {
     const container = document.getElementById('speakers-list');
+    if (!container) return;
 
     if (state.speakers.length === 0) {
-        container.innerHTML = '<div class="empty-state">No speakers discovered</div>';
+        container.innerHTML = `
+            <div class="empty-state">
+                <p>No speakers discovered</p>
+                <button class="btn btn-secondary btn-sm" onclick="discoverSpeakers()">
+                    Discover Speakers
+                </button>
+            </div>
+        `;
         return;
     }
 
     container.innerHTML = state.speakers.map(speaker => `
-        <div class="speaker-item ${speaker.enabled ? '' : 'disabled'} ${speaker.state === 'playing' ? 'playing' : ''}"
-             data-speaker-id="${speaker.id}">
+        <div class="speaker-item ${speaker.enabled ? '' : 'disabled'}" data-speaker-id="${speaker.id}">
             <div class="speaker-info">
-                <div class="speaker-name">${escapeHtml(speaker.name)}</div>
+                <svg class="speaker-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                    <circle cx="12" cy="14" r="4"/>
+                    <line x1="12" y1="6" x2="12" y2="6"/>
+                </svg>
                 <div class="speaker-details">
-                    ${speaker.protocol} | ${speaker.host}
-                    ${speaker.model ? ` | ${speaker.model}` : ''}
+                    <span class="speaker-name">${escapeHtml(speaker.name)}</span>
+                    <span class="speaker-meta">${speaker.host} • ${speaker.protocol}</span>
                 </div>
             </div>
-            <div class="speaker-controls">
-                <input type="range" class="speaker-volume" min="0" max="100"
-                       value="${Math.round((speaker.volume || 0.8) * 100)}"
-                       title="Volume"
-                       onchange="onSpeakerVolumeChange('${speaker.id}', this.value)">
-                <label class="toggle-switch">
-                    <input type="checkbox" ${speaker.enabled ? 'checked' : ''}
-                           onchange="onToggleSpeaker('${speaker.id}', this.checked)">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" ${speaker.enabled ? 'checked' : ''}
+                       onchange="toggleSpeaker('${speaker.id}', this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
         </div>
     `).join('');
 }
 
-async function onToggleSpeaker(speakerId, enabled) {
+async function toggleSpeaker(speakerId, enabled) {
     try {
         if (enabled) {
             await api.enableSpeaker(speakerId);
@@ -135,52 +230,51 @@ async function onToggleSpeaker(speakerId, enabled) {
             await api.disableSpeaker(speakerId);
         }
         await loadSpeakers();
+        await loadStatus();
     } catch (error) {
         console.error('Failed to toggle speaker:', error);
-        await loadSpeakers(); // Refresh to show actual state
-    }
-}
-
-async function onSpeakerVolumeChange(speakerId, value) {
-    try {
-        await api.setSpeakerVolume(speakerId, value / 100);
-    } catch (error) {
-        console.error('Failed to set speaker volume:', error);
-    }
-}
-
-async function onDiscoverSpeakers() {
-    const btn = document.getElementById('btn-discover');
-    btn.disabled = true;
-    btn.textContent = 'Discovering...';
-
-    try {
-        await api.discoverSpeakers();
+        showToast('Failed to toggle speaker', 'error');
         await loadSpeakers();
+    }
+}
+
+async function discoverSpeakers() {
+    try {
+        showToast('Discovering speakers...', 'info');
+        await api.discoverSpeakers();
+        setTimeout(async () => {
+            await loadSpeakers();
+            await loadStatus();
+            showToast('Speaker discovery complete', 'success');
+        }, 3000);
     } catch (error) {
         console.error('Failed to discover speakers:', error);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Discover';
+        showToast('Failed to discover speakers', 'error');
     }
 }
 
-async function onEnableAllSpeakers() {
+async function enableAllSpeakers() {
     try {
         await api.enableAllSpeakers();
         await loadSpeakers();
+        await loadStatus();
+        showToast('All speakers enabled', 'success');
     } catch (error) {
-        console.error('Failed to enable all speakers:', error);
+        console.error('Failed to enable speakers:', error);
+        showToast('Failed to enable speakers', 'error');
     }
 }
 
-async function onDisableAllSpeakers() {
+async function disableAllSpeakers() {
     try {
         await api.disableAllSpeakers();
         await loadSpeakers();
         await loadSessions();
+        await loadStatus();
+        showToast('All speakers disabled', 'success');
     } catch (error) {
-        console.error('Failed to disable all speakers:', error);
+        console.error('Failed to disable speakers:', error);
+        showToast('Failed to disable speakers', 'error');
     }
 }
 
@@ -193,172 +287,384 @@ async function loadThemes() {
         const themes = await api.getThemes();
         state.themes = Array.isArray(themes) ? themes : [];
         renderThemes();
-        updateCategoryFilter();
+        updateChannelModalThemes();
     } catch (error) {
         console.error('Failed to load themes:', error);
     }
 }
 
 function renderThemes() {
-    const container = document.getElementById('themes-list');
-    const searchQuery = document.getElementById('theme-search').value.toLowerCase();
-    const categoryFilter = document.getElementById('theme-category').value;
+    const container = document.getElementById('themes-browser');
+    if (!container) return;
 
-    // Filter themes
-    let filteredThemes = state.themes;
-
-    if (searchQuery) {
-        filteredThemes = filteredThemes.filter(t =>
-            t.name.toLowerCase().includes(searchQuery) ||
-            (t.description && t.description.toLowerCase().includes(searchQuery))
-        );
-    }
-
-    if (categoryFilter) {
-        filteredThemes = filteredThemes.filter(t =>
-            t.categories && t.categories.includes(categoryFilter)
-        );
-    }
-
-    if (filteredThemes.length === 0) {
-        container.innerHTML = '<div class="empty-state">No themes found</div>';
+    if (state.themes.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>No themes found</h3>
+                <p>Click "Refresh" to scan for available soundscapes</p>
+            </div>
+        `;
         return;
     }
 
-    // Check which themes are playing
-    const playingThemeIds = new Set(state.sessions.map(s => s.theme_id));
+    container.innerHTML = `
+        <div class="theme-grid">
+            ${state.themes.map(theme => `
+                <div class="theme-card" data-theme-id="${theme.id}">
+                    <div class="theme-icon">${getThemeIcon(theme)}</div>
+                    <div class="theme-info">
+                        <h4 class="theme-name">${escapeHtml(theme.name)}</h4>
+                        <p class="theme-description">${escapeHtml(theme.description || 'No description')}</p>
+                        <div class="theme-meta">
+                            <span>${theme.track_count || 0} tracks</span>
+                            ${theme.tags?.length ? `<span>${theme.tags.join(', ')}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
 
-    container.innerHTML = filteredThemes.map(theme => `
-        <div class="theme-card ${playingThemeIds.has(theme.id) ? 'playing' : ''}"
-             data-theme-id="${theme.id}"
-             onclick="openThemeModal('${theme.id}')">
-            <div class="theme-icon">${theme.icon || '🎵'}</div>
-            <div class="theme-name">${escapeHtml(theme.name)}</div>
-            <div class="theme-category">
-                ${theme.categories ? theme.categories.join(', ') : 'Uncategorized'}
-            </div>
-            <div class="theme-actions" onclick="event.stopPropagation()">
-                <button class="btn-primary" onclick="quickPlayTheme('${theme.id}')">
-                    ${playingThemeIds.has(theme.id) ? 'Playing' : 'Play'}
+function getThemeIcon(theme) {
+    const tagIcons = {
+        'nature': '🌲',
+        'rain': '🌧️',
+        'ocean': '🌊',
+        'forest': '🌳',
+        'city': '🏙️',
+        'space': '🚀',
+        'ambient': '🎵',
+        'relaxing': '😌',
+        'focus': '🎯',
+        'sleep': '😴',
+    };
+
+    if (theme.tags) {
+        for (const tag of theme.tags) {
+            if (tagIcons[tag.toLowerCase()]) {
+                return tagIcons[tag.toLowerCase()];
+            }
+        }
+    }
+    return '🎵';
+}
+
+async function refreshThemes() {
+    try {
+        showToast('Scanning for themes...', 'info');
+        await api.scanThemes();
+        setTimeout(async () => {
+            await loadThemes();
+            await loadStatus();
+            showToast('Theme scan complete', 'success');
+        }, 2000);
+    } catch (error) {
+        console.error('Failed to scan themes:', error);
+        showToast('Failed to scan themes', 'error');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Channels
+// ─────────────────────────────────────────────────────────────────────────
+
+async function loadChannels() {
+    try {
+        const channels = await api.getChannels();
+        state.channels = Array.isArray(channels) ? channels : [];
+        renderChannels();
+        updatePlayingBadge();
+    } catch (error) {
+        console.error('Failed to load channels:', error);
+    }
+}
+
+function renderChannels() {
+    const container = document.getElementById('channels-container');
+    if (!container) return;
+
+    if (state.channels.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>No channels yet</h3>
+                <p>Create a channel to start playing soundscapes on your speakers</p>
+                <button class="btn btn-primary" onclick="openNewChannelModal()">
+                    Create Your First Channel
                 </button>
             </div>
-        </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = state.channels.map(channel => {
+        const theme = state.themes.find(t => t.id === channel.theme_id);
+        const themeName = theme ? theme.name : 'No theme';
+        const speakerNames = channel.speaker_ids
+            .map(id => state.speakers.find(s => s.id === id)?.name || id)
+            .slice(0, 3)
+            .join(', ');
+        const extraSpeakers = channel.speaker_ids.length > 3
+            ? ` +${channel.speaker_ids.length - 3} more` : '';
+
+        return `
+            <div class="channel-card ${channel.is_playing ? 'playing' : ''}" data-channel-id="${channel.id}">
+                <div class="channel-header">
+                    <div class="channel-title">
+                        <span class="channel-icon">${getThemeIcon(theme || {})}</span>
+                        <h3 class="channel-name">${escapeHtml(channel.name)}</h3>
+                    </div>
+                    <span class="channel-status ${channel.is_playing ? 'playing' : 'stopped'}">
+                        ${channel.is_playing ? '● Playing' : '○ Stopped'}
+                    </span>
+                </div>
+
+                <div class="channel-body">
+                    <div class="channel-field">
+                        <label>Theme</label>
+                        <span class="field-value">${escapeHtml(themeName)}</span>
+                    </div>
+                    <div class="channel-field">
+                        <label>Speakers</label>
+                        <span class="field-value">${speakerNames}${extraSpeakers || ''}</span>
+                    </div>
+
+                    <div class="volume-control">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        </svg>
+                        <input type="range" class="volume-slider" min="0" max="100"
+                               value="${Math.round((channel.volume || 1) * 100)}"
+                               oninput="this.nextElementSibling.textContent = this.value + '%'"
+                               onchange="setChannelVolume('${channel.id}', this.value / 100)">
+                        <span class="volume-value">${Math.round((channel.volume || 1) * 100)}%</span>
+                    </div>
+                </div>
+
+                <div class="channel-actions">
+                    <button class="btn ${channel.is_playing ? 'btn-danger' : 'btn-primary'} btn-play"
+                            onclick="toggleChannel('${channel.id}', ${!channel.is_playing})"
+                            ${!channel.theme_id && !channel.is_playing ? 'disabled title="Select a theme first"' : ''}>
+                        ${channel.is_playing ? '⏹ Stop' : '▶ Play'}
+                    </button>
+                    <button class="btn btn-secondary" onclick="editChannel('${channel.id}')">
+                        Edit
+                    </button>
+                    <button class="btn btn-ghost btn-danger-text" onclick="deleteChannel('${channel.id}')">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function updatePlayingBadge() {
+    const badge = document.getElementById('playing-badge');
+    if (!badge) return;
+
+    const playingCount = state.channels.filter(c => c.is_playing).length;
+    if (playingCount > 0) {
+        badge.textContent = playingCount;
+        badge.style.display = '';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+async function toggleChannel(channelId, play) {
+    try {
+        const channel = state.channels.find(c => c.id === channelId);
+        if (!channel) return;
+
+        if (play) {
+            if (!channel.theme_id) {
+                showToast('Please select a theme first', 'error');
+                return;
+            }
+            await api.playChannel(channelId, channel.theme_id);
+            showToast(`Playing ${channel.name}`, 'success');
+        } else {
+            await api.stopChannel(channelId);
+            showToast(`Stopped ${channel.name}`, 'success');
+        }
+        await loadChannels();
+        await loadSessions();
+        await loadStatus();
+    } catch (error) {
+        console.error('Failed to toggle channel:', error);
+        showToast('Failed: ' + error.message, 'error');
+    }
+}
+
+async function setChannelVolume(channelId, volume) {
+    try {
+        await api.setChannelVolume(channelId, volume);
+    } catch (error) {
+        console.error('Failed to set channel volume:', error);
+    }
+}
+
+async function deleteChannel(channelId) {
+    const channel = state.channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    if (!confirm(`Delete channel "${channel.name}"?`)) return;
+
+    try {
+        await api.deleteChannel(channelId);
+        await loadChannels();
+        showToast('Channel deleted', 'success');
+    } catch (error) {
+        console.error('Failed to delete channel:', error);
+        showToast('Failed to delete channel', 'error');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Channel Modal
+// ─────────────────────────────────────────────────────────────────────────
+
+function openNewChannelModal() {
+    state.editingChannelId = null;
+    document.getElementById('modal-title').textContent = 'New Channel';
+    document.getElementById('save-btn-text').textContent = 'Create Channel';
+    document.getElementById('edit-channel-id').value = '';
+    document.getElementById('channel-name').value = '';
+    document.getElementById('channel-theme').value = '';
+    document.getElementById('channel-volume').value = 60;
+    document.getElementById('channel-volume-display').textContent = '60%';
+
+    // Clear speaker checkboxes
+    updateChannelModalSpeakers([]);
+
+    document.getElementById('channel-modal').classList.add('active');
+}
+
+function editChannel(channelId) {
+    const channel = state.channels.find(c => c.id === channelId);
+    if (!channel) return;
+
+    state.editingChannelId = channelId;
+    document.getElementById('modal-title').textContent = 'Edit Channel';
+    document.getElementById('save-btn-text').textContent = 'Save Changes';
+    document.getElementById('edit-channel-id').value = channelId;
+    document.getElementById('channel-name').value = channel.name;
+    document.getElementById('channel-theme').value = channel.theme_id || '';
+    document.getElementById('channel-volume').value = Math.round((channel.volume || 1) * 100);
+    document.getElementById('channel-volume-display').textContent =
+        Math.round((channel.volume || 1) * 100) + '%';
+
+    // Set speaker checkboxes
+    updateChannelModalSpeakers(channel.speaker_ids);
+
+    document.getElementById('channel-modal').classList.add('active');
+}
+
+function updateChannelModalSpeakers(selectedIds = []) {
+    const container = document.getElementById('channel-speakers');
+    if (!container) return;
+
+    // Only show enabled speakers
+    const enabledSpeakers = state.speakers.filter(s => s.enabled);
+
+    if (enabledSpeakers.length === 0) {
+        container.innerHTML = `
+            <p class="empty-hint">No enabled speakers available.
+            <a href="#" onclick="showView('settings-speakers'); closeChannelModal(); return false;">Enable speakers</a> first.</p>
+        `;
+        return;
+    }
+
+    container.innerHTML = enabledSpeakers.map(speaker => `
+        <label class="checkbox-item">
+            <input type="checkbox" name="channel-speaker" value="${speaker.id}"
+                   ${selectedIds.includes(speaker.id) ? 'checked' : ''}>
+            <span class="checkbox-label">
+                <span class="checkbox-name">${escapeHtml(speaker.name)}</span>
+                <span class="checkbox-meta">${speaker.host}</span>
+            </span>
+        </label>
     `).join('');
 }
 
-function updateCategoryFilter() {
-    const select = document.getElementById('theme-category');
-    const categories = new Set();
-
-    state.themes.forEach(theme => {
-        if (theme.categories) {
-            theme.categories.forEach(c => categories.add(c));
-        }
-    });
+function updateChannelModalThemes() {
+    const select = document.getElementById('channel-theme');
+    if (!select) return;
 
     const currentValue = select.value;
-    select.innerHTML = '<option value="">All Categories</option>' +
-        Array.from(categories).sort().map(c =>
-            `<option value="${c}">${c}</option>`
+    select.innerHTML = '<option value="">-- Select a theme --</option>' +
+        state.themes.map(t =>
+            `<option value="${t.id}">${escapeHtml(t.name)}</option>`
         ).join('');
 
-    select.value = currentValue;
+    if (currentValue) {
+        select.value = currentValue;
+    }
 }
 
-function filterThemes() {
-    renderThemes();
-}
-
-async function quickPlayTheme(themeId) {
-    // Get enabled speakers
-    const enabledSpeakers = state.speakers.filter(s => s.enabled).map(s => s.id);
-
-    if (enabledSpeakers.length === 0) {
-        alert('No speakers enabled. Please enable at least one speaker.');
+async function saveChannel() {
+    const name = document.getElementById('channel-name').value.trim();
+    if (!name) {
+        showToast('Please enter a channel name', 'error');
         return;
     }
 
+    const themeId = document.getElementById('channel-theme').value || null;
+    const volume = parseInt(document.getElementById('channel-volume').value) / 100;
+    const speakerIds = Array.from(
+        document.querySelectorAll('input[name="channel-speaker"]:checked')
+    ).map(cb => cb.value);
+
     try {
-        await api.playTheme(themeId, enabledSpeakers);
-        await loadSessions();
-        renderThemes();
+        if (state.editingChannelId) {
+            // Update existing channel
+            const channel = state.channels.find(c => c.id === state.editingChannelId);
+            const updates = { name, volume };
+
+            if (themeId !== channel.theme_id) {
+                updates.theme_id = themeId;
+            }
+
+            // Calculate speaker changes
+            const currentSpeakers = channel.speaker_ids || [];
+            const addSpeakers = speakerIds.filter(id => !currentSpeakers.includes(id));
+            const removeSpeakers = currentSpeakers.filter(id => !speakerIds.includes(id));
+
+            if (addSpeakers.length > 0) updates.add_speakers = addSpeakers;
+            if (removeSpeakers.length > 0) updates.remove_speakers = removeSpeakers;
+
+            await api.updateChannel(state.editingChannelId, updates);
+            showToast('Channel updated', 'success');
+        } else {
+            // Create new channel
+            const newChannel = await api.createChannel(name, speakerIds);
+
+            // If theme selected, update the channel with theme
+            if (themeId) {
+                await api.updateChannel(newChannel.id, { theme_id: themeId, volume });
+            }
+            showToast('Channel created', 'success');
+        }
+
+        closeChannelModal();
+        await loadChannels();
     } catch (error) {
-        console.error('Failed to play theme:', error);
-        alert('Failed to play theme: ' + error.message);
+        console.error('Failed to save channel:', error);
+        showToast('Failed to save: ' + error.message, 'error');
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Theme Modal
-// ─────────────────────────────────────────────────────────────────────────
+function closeChannelModal() {
+    document.getElementById('channel-modal').classList.remove('active');
+    state.editingChannelId = null;
+}
 
-async function openThemeModal(themeId) {
-    try {
-        const theme = await api.getTheme(themeId);
-        state.selectedTheme = theme;
-        renderThemeModal(theme);
-        document.getElementById('theme-modal').classList.remove('hidden');
-    } catch (error) {
-        console.error('Failed to load theme:', error);
+function closeModalOnBackdrop(event) {
+    if (event.target.classList.contains('modal-backdrop')) {
+        closeChannelModal();
     }
-}
-
-function closeThemeModal() {
-    document.getElementById('theme-modal').classList.add('hidden');
-    state.selectedTheme = null;
-}
-
-function renderThemeModal(theme) {
-    document.getElementById('theme-modal-title').textContent = theme.name;
-
-    // Render tracks
-    const tracksContainer = document.getElementById('theme-tracks');
-    const tracks = theme.tracks || [];
-
-    tracksContainer.innerHTML = tracks.map(track => `
-        <div class="track-item ${track.muted ? 'muted' : ''}" data-track-id="${track.id}">
-            <div class="track-info">
-                <div class="track-name">${escapeHtml(track.name || track.id)}</div>
-                <div class="track-mode">${track.playback_mode || 'loop'} | presence: ${Math.round((track.presence || 1) * 100)}%</div>
-            </div>
-            <div class="track-controls">
-                <input type="range" class="track-volume" min="0" max="100"
-                       value="${Math.round((track.volume || 1) * 100)}"
-                       title="Volume">
-                <label class="toggle-switch">
-                    <input type="checkbox" ${track.muted ? '' : 'checked'}
-                           title="${track.muted ? 'Unmute' : 'Mute'}">
-                    <span class="toggle-slider"></span>
-                </label>
-            </div>
-        </div>
-    `).join('') || '<div class="empty-state">No tracks</div>';
-
-    // Render presets
-    const presetsContainer = document.getElementById('presets-list');
-    const presets = theme.presets || [];
-
-    presetsContainer.innerHTML = presets.map(preset => `
-        <button class="preset-btn ${preset.is_default ? 'active' : ''}"
-                onclick="onApplyPreset('${theme.id}', '${preset.id}')">
-            ${escapeHtml(preset.name)}
-        </button>
-    `).join('') || '<div class="empty-state">No presets</div>';
-}
-
-async function onApplyPreset(themeId, presetId) {
-    try {
-        await api.applyPreset(themeId, presetId);
-        await openThemeModal(themeId); // Refresh modal
-    } catch (error) {
-        console.error('Failed to apply preset:', error);
-    }
-}
-
-async function onPlaySelectedTheme() {
-    if (!state.selectedTheme) return;
-    await quickPlayTheme(state.selectedTheme.id);
-    closeThemeModal();
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -369,78 +675,45 @@ async function loadSessions() {
     try {
         const sessions = await api.getSessions();
         state.sessions = Array.isArray(sessions) ? sessions : [];
-        renderSessions();
     } catch (error) {
         console.error('Failed to load sessions:', error);
     }
 }
 
-function renderSessions() {
-    const container = document.getElementById('sessions-list');
+// ─────────────────────────────────────────────────────────────────────────
+// Status
+// ─────────────────────────────────────────────────────────────────────────
 
-    if (state.sessions.length === 0) {
-        container.innerHTML = '<div class="empty-state">Nothing playing</div>';
-        return;
-    }
-
-    container.innerHTML = state.sessions.map(session => {
-        const theme = state.themes.find(t => t.id === session.theme_id);
-        const themeName = theme ? theme.name : session.theme_id;
-
-        return `
-            <div class="session-item" data-session-id="${session.id}">
-                <div class="session-header">
-                    <div class="session-theme">${escapeHtml(themeName)}</div>
-                    <button class="btn-danger" onclick="onStopSession('${session.id}')">
-                        Stop
-                    </button>
-                </div>
-                <div class="session-controls">
-                    <div class="session-volume">
-                        <input type="range" min="0" max="100"
-                               value="${Math.round((session.volume || 1) * 100)}"
-                               onchange="onSessionVolumeChange('${session.id}', this.value)">
-                        <span>${Math.round((session.volume || 1) * 100)}%</span>
-                    </div>
-                </div>
-                <div class="session-speakers">
-                    ${(session.speakers || []).map(speakerId => {
-                        const speaker = state.speakers.find(s => s.id === speakerId);
-                        const name = speaker ? speaker.name : speakerId;
-                        return `<span class="speaker-tag">${escapeHtml(name)}</span>`;
-                    }).join('')}
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-async function onStopSession(sessionId) {
+async function loadStatus() {
     try {
-        await api.stopSession(sessionId);
-        await loadSessions();
-        renderThemes();
+        const status = await api.getStatus();
+        state.status = status || {};
+        renderStatus();
     } catch (error) {
-        console.error('Failed to stop session:', error);
+        console.error('Failed to load status:', error);
     }
 }
 
-async function onSessionVolumeChange(sessionId, value) {
-    try {
-        await api.setSessionVolume(sessionId, value / 100);
-    } catch (error) {
-        console.error('Failed to set session volume:', error);
-    }
-}
+function renderStatus() {
+    // Status cards
+    document.getElementById('status-active-sessions').textContent =
+        state.status.active_session_count || 0;
+    document.getElementById('status-total-speakers').textContent =
+        state.status.speaker_count || 0;
+    document.getElementById('status-enabled-speakers').textContent =
+        state.status.enabled_speaker_count || 0;
+    document.getElementById('status-theme-count').textContent =
+        state.status.theme_count || 0;
 
-async function onStopAllSessions() {
-    try {
-        await api.stopAllSessions();
-        await loadSessions();
-        renderThemes();
-    } catch (error) {
-        console.error('Failed to stop all sessions:', error);
-    }
+    // About section
+    document.getElementById('about-version').textContent =
+        state.status.version || 'Unknown';
+    document.getElementById('about-state').textContent =
+        state.status.state || 'Unknown';
+
+    // Sidebar version
+    document.getElementById('version-text').textContent =
+        'v' + (state.status.version || '...');
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -451,78 +724,79 @@ async function loadSettings() {
     try {
         const settings = await api.getSettings();
         state.settings = settings || {};
-        applySettings(settings);
+        renderSettings();
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
 }
 
-function applySettings(settings) {
-    // Master volume
-    const masterVolume = settings.master_volume || 0.8;
-    document.getElementById('master-volume').value = masterVolume * 100;
-    document.getElementById('master-volume-value').textContent = Math.round(masterVolume * 100) + '%';
+function renderSettings() {
+    const masterVolume = Math.round((state.settings.master_volume || 0.8) * 100);
+    const slider = document.getElementById('settings-master-volume');
+    const display = document.getElementById('settings-master-volume-value');
 
-    // MQTT
-    if (settings.mqtt) {
-        document.getElementById('mqtt-enabled').checked = settings.mqtt.enabled;
-        document.getElementById('mqtt-host').value = settings.mqtt.host || 'localhost';
-        document.getElementById('mqtt-port').value = settings.mqtt.port || 1883;
-    }
+    if (slider) slider.value = masterVolume;
+    if (display) display.textContent = masterVolume + '%';
+}
 
-    // Discovery
-    if (settings.discovery) {
-        document.getElementById('discovery-interval').value = settings.discovery.interval_seconds || 300;
-    }
-
-    // Audio
-    if (settings.audio) {
-        document.getElementById('default-volume').value = (settings.audio.default_volume || 0.8) * 100;
+function updateMasterVolumeDisplay(value) {
+    const display = document.getElementById('settings-master-volume-value');
+    if (display) {
+        display.textContent = value + '%';
     }
 }
 
-function openSettingsModal() {
-    document.getElementById('settings-modal').classList.remove('hidden');
-}
-
-function closeSettingsModal() {
-    document.getElementById('settings-modal').classList.add('hidden');
-}
-
-async function onSaveSettings() {
-    const settings = {
-        mqtt: {
-            enabled: document.getElementById('mqtt-enabled').checked,
-            host: document.getElementById('mqtt-host').value,
-            port: parseInt(document.getElementById('mqtt-port').value),
-        },
-        discovery: {
-            interval_seconds: parseInt(document.getElementById('discovery-interval').value),
-        },
-        audio: {
-            default_volume: document.getElementById('default-volume').value / 100,
-        },
-    };
-
+async function saveAudioSettings() {
     try {
-        await api.updateSettings(settings);
-        closeSettingsModal();
-        await loadSettings();
+        const masterVolume = parseInt(
+            document.getElementById('settings-master-volume').value
+        ) / 100;
+
+        await api.updateSettings({ master_volume: masterVolume });
+        state.settings.master_volume = masterVolume;
+        showToast('Settings saved', 'success');
     } catch (error) {
         console.error('Failed to save settings:', error);
-        alert('Failed to save settings: ' + error.message);
+        showToast('Failed to save settings', 'error');
     }
 }
 
-async function onMasterVolumeChange(event) {
-    const value = event.target.value;
-    document.getElementById('master-volume-value').textContent = value + '%';
+// ─────────────────────────────────────────────────────────────────────────
+// Toast Notifications
+// ─────────────────────────────────────────────────────────────────────────
 
-    try {
-        await api.setMasterVolume(value / 100);
-    } catch (error) {
-        console.error('Failed to set master volume:', error);
-    }
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+
+    const icons = {
+        success: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+        error: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+        info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+    };
+
+    toast.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            ${icons[type] || icons.info}
+        </svg>
+        <span>${escapeHtml(message)}</span>
+    `;
+
+    container.appendChild(toast);
+
+    // Trigger animation
+    requestAnimationFrame(() => {
+        toast.classList.add('show');
+    });
+
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

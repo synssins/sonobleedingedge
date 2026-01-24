@@ -2,14 +2,24 @@
  * Sonorium API Client
  *
  * Handles all communication with the Sonorium backend.
+ * Supports both standalone and HA ingress deployment.
  */
 
 class SonoriumAPI {
-    constructor(baseUrl = '') {
-        this.baseUrl = baseUrl;
+    constructor() {
+        // Use base path from index.html (supports HA ingress)
+        // Falls back to calculating from current path
+        this.baseUrl = window.SONORIUM_BASE !== undefined
+            ? window.SONORIUM_BASE
+            : (function() {
+                const path = window.location.pathname;
+                const base = path.replace(/\/?(index\.html)?$/, '');
+                return base ? base + '/' : '';
+            })();
     }
 
     async request(method, endpoint, data = null) {
+        // Use relative URL (no leading slash) for ingress compatibility
         const url = `${this.baseUrl}api${endpoint}`;
         const options = {
             method,
@@ -30,7 +40,8 @@ class SonoriumAPI {
                 throw new Error(error.detail || `HTTP ${response.status}`);
             }
 
-            // Handle empty responses
+            // Handle empty responses (204 No Content)
+            if (response.status === 204) return {};
             const text = await response.text();
             return text ? JSON.parse(text) : {};
         } catch (error) {
@@ -43,20 +54,25 @@ class SonoriumAPI {
     // Speakers
     // ─────────────────────────────────────────────────────────────────────
 
-    async getSpeakers() {
-        return this.request('GET', '/speakers');
+    async getSpeakers(enabledOnly = false) {
+        const query = enabledOnly ? '?enabled_only=true' : '';
+        return this.request('GET', `/speakers${query}`);
     }
 
     async getEnabledSpeakers() {
         return this.request('GET', '/speakers/enabled');
     }
 
+    async getSpeaker(speakerId) {
+        return this.request('GET', `/speakers/${encodeURIComponent(speakerId)}`);
+    }
+
     async enableSpeaker(speakerId) {
-        return this.request('POST', `/speakers/${speakerId}/enable`);
+        return this.request('POST', `/speakers/${encodeURIComponent(speakerId)}/enable`);
     }
 
     async disableSpeaker(speakerId) {
-        return this.request('POST', `/speakers/${speakerId}/disable`);
+        return this.request('POST', `/speakers/${encodeURIComponent(speakerId)}/disable`);
     }
 
     async enableAllSpeakers() {
@@ -68,7 +84,7 @@ class SonoriumAPI {
     }
 
     async setSpeakerVolume(speakerId, volume) {
-        return this.request('POST', `/speakers/${speakerId}/volume`, { volume });
+        return this.request('POST', `/speakers/${encodeURIComponent(speakerId)}/volume`, { volume });
     }
 
     async discoverSpeakers() {
@@ -84,56 +100,46 @@ class SonoriumAPI {
     }
 
     async getTheme(themeId) {
-        return this.request('GET', `/themes/${themeId}`);
+        return this.request('GET', `/themes/${encodeURIComponent(themeId)}`);
     }
 
-    async playTheme(themeId, speakerIds = null, volume = 1.0) {
-        return this.request('POST', `/themes/${themeId}/play`, {
-            speaker_ids: speakerIds,
-            volume,
-        });
+    async playTheme(themeId, speakerIds) {
+        const query = speakerIds.map(id => `speaker_ids=${encodeURIComponent(id)}`).join('&');
+        return this.request('POST', `/themes/${encodeURIComponent(themeId)}/play?${query}`);
     }
 
     async scanThemes() {
         return this.request('POST', '/themes/scan');
     }
 
-    async setThemeFavorite(themeId, isFavorite) {
-        return this.request('PATCH', `/themes/${themeId}`, {
-            is_favorite: isFavorite,
-        });
-    }
-
-    async applyPreset(themeId, presetId) {
-        return this.request('POST', `/themes/${themeId}/presets/${presetId}/apply`);
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // Sessions
     // ─────────────────────────────────────────────────────────────────────
 
-    async getSessions() {
-        return this.request('GET', '/sessions');
+    async getSessions(activeOnly = true) {
+        const query = `?active_only=${activeOnly}`;
+        return this.request('GET', `/sessions${query}`);
     }
 
     async getSession(sessionId) {
-        return this.request('GET', `/sessions/${sessionId}`);
+        return this.request('GET', `/sessions/${encodeURIComponent(sessionId)}`);
     }
 
-    async createSession(themeId, speakerIds, volume = 1.0) {
+    async createSession(themeId, speakerIds, channelId = null, volume = 1.0) {
         return this.request('POST', '/sessions', {
             theme_id: themeId,
             speaker_ids: speakerIds,
+            channel_id: channelId,
             volume,
         });
     }
 
-    async stopSession(sessionId) {
-        return this.request('DELETE', `/sessions/${sessionId}`);
+    async updateSession(sessionId, updates) {
+        return this.request('PATCH', `/sessions/${encodeURIComponent(sessionId)}`, updates);
     }
 
-    async updateSession(sessionId, updates) {
-        return this.request('PATCH', `/sessions/${sessionId}`, updates);
+    async stopSession(sessionId) {
+        return this.request('DELETE', `/sessions/${encodeURIComponent(sessionId)}`);
     }
 
     async setSessionVolume(sessionId, volume) {
@@ -144,8 +150,59 @@ class SonoriumAPI {
         return this.updateSession(sessionId, { muted });
     }
 
-    async stopAllSessions() {
-        return this.request('POST', '/sessions/stop-all');
+    // ─────────────────────────────────────────────────────────────────────
+    // Channels
+    // ─────────────────────────────────────────────────────────────────────
+
+    async getChannels() {
+        return this.request('GET', '/channels');
+    }
+
+    async getChannel(channelId) {
+        return this.request('GET', `/channels/${encodeURIComponent(channelId)}`);
+    }
+
+    async createChannel(name, speakerIds = []) {
+        return this.request('POST', '/channels', {
+            name,
+            speaker_ids: speakerIds,
+        });
+    }
+
+    async updateChannel(channelId, updates) {
+        return this.request('PATCH', `/channels/${encodeURIComponent(channelId)}`, updates);
+    }
+
+    async deleteChannel(channelId) {
+        return this.request('DELETE', `/channels/${encodeURIComponent(channelId)}`);
+    }
+
+    async playChannel(channelId, themeId) {
+        return this.request('POST', `/channels/${encodeURIComponent(channelId)}/play?theme_id=${encodeURIComponent(themeId)}`);
+    }
+
+    async stopChannel(channelId) {
+        return this.request('POST', `/channels/${encodeURIComponent(channelId)}/stop`);
+    }
+
+    async setChannelVolume(channelId, volume) {
+        return this.updateChannel(channelId, { volume });
+    }
+
+    async addSpeakersToChannel(channelId, speakerIds) {
+        return this.updateChannel(channelId, { add_speakers: speakerIds });
+    }
+
+    async removeSpeakersFromChannel(channelId, speakerIds) {
+        return this.updateChannel(channelId, { remove_speakers: speakerIds });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Status
+    // ─────────────────────────────────────────────────────────────────────
+
+    async getStatus() {
+        return this.request('GET', '/status');
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -160,20 +217,28 @@ class SonoriumAPI {
         return this.request('PATCH', '/settings', settings);
     }
 
-    async getMasterVolume() {
-        return this.request('GET', '/settings/master-volume');
-    }
-
     async setMasterVolume(volume) {
-        return this.request('POST', '/settings/master-volume', { volume });
+        return this.updateSettings({ master_volume: volume });
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Status
+    // Logs
     // ─────────────────────────────────────────────────────────────────────
 
-    async getStatus() {
-        return this.request('GET', '/status');
+    async getLogs(limit = 100, level = 'info') {
+        return this.request('GET', `/logs?limit=${limit}&level=${encodeURIComponent(level)}`);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Commands
+    // ─────────────────────────────────────────────────────────────────────
+
+    async executeCommand(action, params = {}) {
+        return this.request('POST', '/command', { action, params });
+    }
+
+    async stopAll() {
+        return this.executeCommand('stop_all');
     }
 }
 

@@ -4,166 +4,343 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sonorium</title>
-    <link rel="stylesheet" href="static/css/styles.css">
+    <script>
+        // Determine base path for ingress support and store globally
+        (function() {
+            var path = window.location.pathname;
+            window.SONORIUM_BASE = path.replace(/\/?(index\.html)?$/, '') || '';
+
+            // Dynamically load CSS with correct path
+            var link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = window.SONORIUM_BASE + '/static/css/styles.css';
+            document.head.appendChild(link);
+        })();
+    </script>
 </head>
 <body>
-    <div class="app">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <h1 class="logo">Sonorium</h1>
-            </div>
-            <div class="header-center">
-                <div class="master-volume">
-                    <label for="master-volume">Master</label>
-                    <input type="range" id="master-volume" min="0" max="100" value="80">
-                    <span id="master-volume-value">80%</span>
-                </div>
-            </div>
-            <div class="header-right">
-                <button id="btn-settings" class="btn-icon" title="Settings">
-                    <span class="icon">&#9881;</span>
-                </button>
-                <span id="connection-status" class="status online">Connected</span>
-            </div>
-        </header>
-
-        <!-- Main Content -->
-        <main class="main">
-            <!-- Speakers Panel -->
-            <section class="panel speakers-panel">
-                <div class="panel-header">
-                    <h2>Speakers</h2>
-                    <div class="panel-actions">
-                        <button id="btn-discover" class="btn-secondary" title="Discover Speakers">
-                            Discover
-                        </button>
-                        <button id="btn-enable-all" class="btn-secondary" title="Enable All">
-                            Enable All
-                        </button>
-                        <button id="btn-disable-all" class="btn-secondary" title="Disable All">
-                            Disable All
-                        </button>
-                    </div>
-                </div>
-                <div class="panel-content">
-                    <div id="speakers-list" class="speakers-list">
-                        <!-- Speakers loaded dynamically -->
-                        <div class="empty-state">No speakers discovered</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Themes Panel -->
-            <section class="panel themes-panel">
-                <div class="panel-header">
-                    <h2>Themes</h2>
-                    <div class="panel-actions">
-                        <input type="text" id="theme-search" placeholder="Search themes..." class="search-input">
-                        <select id="theme-category" class="category-select">
-                            <option value="">All Categories</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="panel-content">
-                    <div id="themes-list" class="themes-list">
-                        <!-- Themes loaded dynamically -->
-                        <div class="empty-state">No themes found</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Now Playing Panel -->
-            <section class="panel nowplaying-panel">
-                <div class="panel-header">
-                    <h2>Now Playing</h2>
-                    <div class="panel-actions">
-                        <button id="btn-stop-all" class="btn-danger" title="Stop All">
-                            Stop All
-                        </button>
-                    </div>
-                </div>
-                <div class="panel-content">
-                    <div id="sessions-list" class="sessions-list">
-                        <!-- Active sessions loaded dynamically -->
-                        <div class="empty-state">Nothing playing</div>
-                    </div>
-                </div>
-            </section>
-        </main>
-
-        <!-- Theme Detail Modal -->
-        <div id="theme-modal" class="modal hidden">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 id="theme-modal-title">Theme Details</h2>
-                    <button class="btn-close" onclick="closeThemeModal()">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div id="theme-tracks" class="track-list">
-                        <!-- Tracks loaded dynamically -->
-                    </div>
-                    <div id="theme-presets" class="presets-section">
-                        <h3>Presets</h3>
-                        <div id="presets-list" class="presets-list">
-                            <!-- Presets loaded dynamically -->
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button id="btn-play-theme" class="btn-primary">Play Theme</button>
-                    <button id="btn-cancel" class="btn-secondary" onclick="closeThemeModal()">Close</button>
-                </div>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <span class="logo-text">Sonorium</span>
             </div>
         </div>
 
-        <!-- Settings Modal -->
-        <div id="settings-modal" class="modal hidden">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Settings</h2>
-                    <button class="btn-close" onclick="closeSettingsModal()">&times;</button>
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Playback</div>
+                <div class="nav-item active" onclick="showView('channels')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"/>
+                        <rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                    <span>Channels</span>
+                    <span id="playing-badge" class="nav-item-badge" style="display: none;">0</span>
                 </div>
-                <div class="modal-body">
-                    <div class="settings-section">
-                        <h3>MQTT</h3>
-                        <div class="setting-row">
-                            <label for="mqtt-enabled">Enable MQTT</label>
-                            <input type="checkbox" id="mqtt-enabled">
-                        </div>
-                        <div class="setting-row">
-                            <label for="mqtt-host">Host</label>
-                            <input type="text" id="mqtt-host" placeholder="localhost">
-                        </div>
-                        <div class="setting-row">
-                            <label for="mqtt-port">Port</label>
-                            <input type="number" id="mqtt-port" value="1883">
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Configuration</div>
+                <div class="nav-item" onclick="showView('themes')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18V5l12-2v13"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <circle cx="18" cy="16" r="3"/>
+                    </svg>
+                    <span>Themes</span>
+                </div>
+            </div>
+
+            <div class="nav-section" id="settings-nav-section">
+                <div class="nav-section-header" onclick="toggleNavSection('settings-nav-section')">
+                    <div class="nav-section-left">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                        <span>Settings</span>
+                    </div>
+                    <svg class="nav-section-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                </div>
+                <div class="nav-sub-items">
+                    <div class="nav-sub-item" onclick="showView('settings-speakers')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                            <circle cx="12" cy="14" r="4"/>
+                            <line x1="12" y1="6" x2="12" y2="6"/>
+                        </svg>
+                        <span>Speakers</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-audio')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                        </svg>
+                        <span>Audio</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">System</div>
+                <div class="nav-item" onclick="showView('status')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                    </svg>
+                    <span>Status</span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span id="version-text">v...</span>
+        </div>
+    </aside>
+
+    <!-- Mobile sidebar overlay -->
+    <div class="sidebar-overlay" onclick="closeSidebar()"></div>
+
+    <!-- Main Content -->
+    <div class="main-wrapper">
+        <header class="main-header">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <button class="btn btn-icon mobile-menu-btn" onclick="toggleSidebar()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"/>
+                        <line x1="3" y1="6" x2="21" y2="6"/>
+                        <line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                </button>
+                <h2 id="view-title">Channels</h2>
+            </div>
+            <div class="header-actions" id="view-actions">
+                <button class="btn btn-primary" onclick="openNewChannelModal()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    New Channel
+                </button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Channels View -->
+            <div id="view-channels" class="view active">
+                <div id="channels-container" class="channel-grid">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading channels...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Themes View -->
+            <div id="view-themes" class="view">
+                <div class="themes-header">
+                    <div class="themes-header-actions">
+                        <button class="btn btn-secondary" onclick="refreshThemes()" title="Rescan theme folders">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6"/>
+                                <path d="M1 20v-6h6"/>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            </svg>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+                <div id="themes-browser" class="themes-browser">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading themes...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Speakers Settings View -->
+            <div id="view-settings-speakers" class="view">
+                <div class="settings-section">
+                    <h3>Available Speakers</h3>
+                    <p>Select which speakers Sonorium can use. Disabled speakers won't appear when creating channels.</p>
+                    <div class="settings-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="enableAllSpeakers()">Enable All</button>
+                        <button class="btn btn-secondary btn-sm" onclick="disableAllSpeakers()">Disable All</button>
+                        <button class="btn btn-secondary btn-sm" onclick="discoverSpeakers()" title="Scan network for speakers">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                                <line x1="2" y1="12" x2="22" y2="12"/>
+                            </svg>
+                            Discover
+                        </button>
+                    </div>
+                    <div id="speakers-list" class="speakers-list">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            Loading speakers...
                         </div>
                     </div>
-                    <div class="settings-section">
-                        <h3>Discovery</h3>
-                        <div class="setting-row">
-                            <label for="discovery-interval">Interval (seconds)</label>
-                            <input type="number" id="discovery-interval" value="300">
+                </div>
+            </div>
+
+            <!-- Audio Settings View -->
+            <div id="view-settings-audio" class="view">
+                <div class="settings-section">
+                    <h3>Audio Settings</h3>
+                    <p>Configure playback and mixing parameters.</p>
+
+                    <div class="settings-form">
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="settings-master-volume">Master Volume</label>
+                                <span class="settings-hint">Global volume for all playback</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="range" id="settings-master-volume" min="0" max="100" step="5" value="80"
+                                       oninput="updateMasterVolumeDisplay(this.value)">
+                                <span id="settings-master-volume-value" class="settings-value">80%</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="settings-section">
-                        <h3>Audio</h3>
-                        <div class="setting-row">
-                            <label for="default-volume">Default Volume</label>
-                            <input type="range" id="default-volume" min="0" max="100" value="80">
-                        </div>
+
+                    <div class="settings-actions" style="margin-top: 1rem;">
+                        <button class="btn btn-primary btn-sm" onclick="saveAudioSettings()">Save Settings</button>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button id="btn-save-settings" class="btn-primary">Save</button>
-                    <button class="btn-secondary" onclick="closeSettingsModal()">Cancel</button>
+            </div>
+
+            <!-- Status View -->
+            <div id="view-status" class="view">
+                <div class="status-grid">
+                    <div class="status-card">
+                        <h4>Active Sessions</h4>
+                        <div id="status-active-sessions" class="status-value">0</div>
+                    </div>
+                    <div class="status-card">
+                        <h4>Total Speakers</h4>
+                        <div id="status-total-speakers" class="status-value">0</div>
+                    </div>
+                    <div class="status-card">
+                        <h4>Enabled Speakers</h4>
+                        <div id="status-enabled-speakers" class="status-value">0</div>
+                    </div>
+                    <div class="status-card">
+                        <h4>Themes</h4>
+                        <div id="status-theme-count" class="status-value">0</div>
+                    </div>
                 </div>
+
+                <!-- About Section -->
+                <div class="settings-section about-section" style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                    <h3>About Sonorium</h3>
+                    <div class="about-info">
+                        <div class="about-row">
+                            <span class="about-label">Version</span>
+                            <span id="about-version" class="about-value">...</span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">State</span>
+                            <span id="about-state" class="about-value">...</span>
+                        </div>
+                    </div>
+                    <p class="about-description">Multi-zone ambient soundscape mixer for whole-home audio.</p>
+                    <div class="about-links">
+                        <a href="https://github.com/synssins/sonobleedingedge" target="_blank" class="about-link">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/>
+                            </svg>
+                            GitHub
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- New/Edit Channel Modal -->
+    <div id="channel-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 id="modal-title">New Channel</h2>
+                <button class="modal-close" onclick="closeChannelModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-channel-id" value="">
+
+                <div class="form-field">
+                    <label>Channel Name</label>
+                    <input type="text" id="channel-name" placeholder="e.g., Living Room, Office">
+                </div>
+
+                <div class="form-field">
+                    <label>Select Theme</label>
+                    <select id="channel-theme">
+                        <option value="">-- Select a theme --</option>
+                    </select>
+                </div>
+
+                <div class="form-field">
+                    <label>Select Speakers</label>
+                    <div id="channel-speakers" class="checkbox-list">
+                        <!-- Speakers loaded dynamically -->
+                    </div>
+                </div>
+
+                <div class="form-field">
+                    <label>Volume</label>
+                    <div class="volume-control">
+                        <input type="range" id="channel-volume" class="volume-slider" min="0" max="100" value="60">
+                        <span id="channel-volume-display" class="volume-value">60%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeChannelModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveChannel()">
+                    <span id="save-btn-text">Create Channel</span>
+                </button>
             </div>
         </div>
     </div>
 
-    <script src="static/js/api.js"></script>
-    <script src="static/js/app.js"></script>
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- JavaScript - dynamically loaded for ingress support -->
+    <script>
+        (function() {
+            var base = window.SONORIUM_BASE || '';
+
+            function loadScript(src, callback) {
+                var script = document.createElement('script');
+                script.src = base + src;
+                script.onload = function() {
+                    console.log('Loaded: ' + src);
+                    if (callback) callback();
+                };
+                script.onerror = function() {
+                    console.error('Failed to load: ' + base + src);
+                };
+                document.body.appendChild(script);
+            }
+
+            console.log('Sonorium loading scripts with base:', base);
+            loadScript('/static/js/api.js', function() {
+                loadScript('/static/js/app.js', function() {
+                    console.log('All scripts loaded');
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
