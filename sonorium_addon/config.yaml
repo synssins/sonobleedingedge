@@ -1,5 +1,5 @@
 name: Sonorium
-version: "0.1.4"
+version: "0.1.5"
 slug: sonorium
 description: Multi-zone ambient soundscape mixer for Home Assistant
 url: https://github.com/synssins/sonobleedingedge
@@ -10,6 +10,11 @@ arch:
 init: false
 homeassistant_api: true
 hassio_api: true
+ingress: true
+ingress_port: 8008
+ingress_stream: true
+panel_icon: mdi:speaker-multiple
+panel_title: Sonorium
 map:
   - type: share
     read_only: false
@@ -18,7 +23,7 @@ map:
 ports:
   8008/tcp: 8008
 ports_description:
-  8008/tcp: Web UI
+  8008/tcp: Web UI (direct access)
 options:
   log_level: info
 schema:

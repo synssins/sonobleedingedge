@@ -10,7 +10,7 @@ class SonoriumAPI {
     }
 
     async request(method, endpoint, data = null) {
-        const url = `${this.baseUrl}/api${endpoint}`;
+        const url = `${this.baseUrl}api${endpoint}`;
         const options = {
             method,
             headers: {

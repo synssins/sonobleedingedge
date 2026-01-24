@@ -42,12 +42,18 @@ async def lifespan(app: FastAPI):
     config_path = app.state.config_path if hasattr(app.state, "config_path") else None
     await init_state_manager(config_path)
 
+    # Get MQTT settings - prefer app settings over state manager settings
+    # App settings come from environment variables and are more up-to-date
+    if hasattr(app.state, "app_settings") and app.state.app_settings:
+        mqtt_settings = app.state.app_settings.mqtt
+    else:
+        mqtt_settings = get_state_manager().get_settings().mqtt
+
     # Initialize MQTT if enabled
-    settings = get_state_manager().get_settings()
-    if settings.mqtt.enabled:
+    if mqtt_settings.enabled:
         try:
             from ..core.mqtt import init_mqtt_bridge
-            await init_mqtt_bridge(settings.mqtt)
+            await init_mqtt_bridge(mqtt_settings)
             logger.info("MQTT bridge initialized")
         except ImportError:
             logger.warning("MQTT bridge not available")
@@ -99,8 +105,9 @@ def create_app(
         lifespan=lifespan,
     )
 
-    # Store config path for lifespan
+    # Store config path and settings for lifespan
     app.state.config_path = config_path
+    app.state.app_settings = settings
 
     # CORS middleware
     app.add_middleware(
