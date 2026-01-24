@@ -1,204 +1,129 @@
 #!/usr/bin/env python3
 """
-Version management for Sonorium.
+Version bump script for Sonorium.
 
-Single source of truth: VERSION file in project root.
-This script propagates the version to all necessary locations.
+Updates version in all required locations:
+- shared/sonorium/VERSION (source of truth)
+- sonorium_addon/config.yaml (HA addon version)
 
 Usage:
-    python scripts/bump_version.py                    # Show current version
-    python scripts/bump_version.py --bump patch      # 0.1.0 -> 0.1.1
-    python scripts/bump_version.py --bump minor      # 0.1.0 -> 0.2.0
-    python scripts/bump_version.py --bump major      # 0.1.0 -> 1.0.0
-    python scripts/bump_version.py --set 1.2.3       # Set explicit version
-    python scripts/bump_version.py --sync            # Sync VERSION to all targets
+    python scripts/bump_version.py patch    # 0.1.7 -> 0.1.8
+    python scripts/bump_version.py minor    # 0.1.7 -> 0.2.0
+    python scripts/bump_version.py major    # 0.1.7 -> 1.0.0
+    python scripts/bump_version.py 0.2.0    # Set specific version
+
+After running, commit and push. GitHub Actions will NOT run since
+this script updates all files. Use this for local development.
+
+For CI/CD, just update shared/sonorium/VERSION and push - the GitHub
+Action will sync to other files automatically.
 """
 
-import argparse
+import sys
 import re
 from pathlib import Path
 
 
-def get_project_root() -> Path:
-    """Get project root directory."""
-    return Path(__file__).parent.parent
+# Version file locations (relative to repo root)
+VERSION_FILE = Path("shared/sonorium/VERSION")
+CONFIG_YAML = Path("sonorium_addon/config.yaml")
 
 
-def read_version() -> str:
-    """Read version from VERSION file."""
-    version_file = get_project_root() / "VERSION"
-    if not version_file.exists():
-        raise FileNotFoundError("VERSION file not found in project root")
-    return version_file.read_text().strip()
+def get_repo_root() -> Path:
+    """Find repository root."""
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / ".git").exists():
+            return current
+        current = current.parent
+    raise RuntimeError("Not in a git repository")
 
 
-def write_version(version: str) -> None:
-    """Write version to VERSION file."""
-    version_file = get_project_root() / "VERSION"
-    version_file.write_text(f"{version}\n")
-    print(f"Updated VERSION file: {version}")
+def read_version(repo_root: Path) -> str:
+    """Read current version from VERSION file."""
+    version_path = repo_root / VERSION_FILE
+    if not version_path.exists():
+        raise FileNotFoundError(f"VERSION file not found: {version_path}")
+    return version_path.read_text().strip()
+
+
+def parse_version(version: str) -> tuple[int, int, int]:
+    """Parse version string to tuple."""
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)$", version)
+    if not match:
+        raise ValueError(f"Invalid version format: {version}")
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
 def bump_version(current: str, bump_type: str) -> str:
-    """Bump version according to semver."""
-    match = re.match(r"^(\d+)\.(\d+)\.(\d+)(.*)$", current)
-    if not match:
-        raise ValueError(f"Invalid version format: {current}")
+    """Calculate new version based on bump type."""
+    major, minor, patch = parse_version(current)
 
-    major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3))
-    suffix = match.group(4)  # Preserve any suffix like -dev, -beta, etc.
-
-    if bump_type == "major":
-        major += 1
-        minor = 0
-        patch = 0
+    if bump_type == "patch":
+        return f"{major}.{minor}.{patch + 1}"
     elif bump_type == "minor":
-        minor += 1
-        patch = 0
-    elif bump_type == "patch":
-        patch += 1
+        return f"{major}.{minor + 1}.0"
+    elif bump_type == "major":
+        return f"{major + 1}.0.0"
     else:
-        raise ValueError(f"Invalid bump type: {bump_type}")
-
-    return f"{major}.{minor}.{patch}{suffix}"
-
-
-def update_ha_addon_config(version: str) -> bool:
-    """Update version in sonorium_addon/config.yaml."""
-    config_file = get_project_root() / "sonorium_addon" / "config.yaml"
-
-    if not config_file.exists():
-        print(f"  [SKIP] {config_file.relative_to(get_project_root())} - file not found")
-        return False
-
-    content = config_file.read_text()
-
-    # Match version line in YAML (version: "x.x.x" or version: x.x.x)
-    pattern = r'^(version:\s*)["\']?[\d.]+["\']?\s*$'
-    replacement = f'version: "{version}"'
-
-    new_content, count = re.subn(pattern, replacement, content, flags=re.MULTILINE)
-
-    if count > 0:
-        config_file.write_text(new_content)
-        print(f"  [OK] {config_file.relative_to(get_project_root())} -> {version}")
-        return True
-    else:
-        print(f"  [WARN] {config_file.relative_to(get_project_root())} - version line not found")
-        return False
+        # Assume it's a specific version
+        parse_version(bump_type)  # Validate format
+        return bump_type
 
 
-def update_pyproject_toml(version: str) -> bool:
-    """Update version in pyproject.toml if it exists."""
-    pyproject_file = get_project_root() / "pyproject.toml"
-
-    if not pyproject_file.exists():
-        return False
-
-    content = pyproject_file.read_text()
-
-    # Match version in [project] or [tool.poetry] section
-    pattern = r'^(version\s*=\s*)["\'][\d.]+["\']\s*$'
-    replacement = f'version = "{version}"'
-
-    new_content, count = re.subn(pattern, replacement, content, flags=re.MULTILINE)
-
-    if count > 0:
-        pyproject_file.write_text(new_content)
-        print(f"  [OK] pyproject.toml -> {version}")
-        return True
-
-    return False
+def update_version_file(repo_root: Path, new_version: str) -> None:
+    """Update the VERSION file."""
+    version_path = repo_root / VERSION_FILE
+    version_path.write_text(f"{new_version}\n")
+    print(f"  Updated: {VERSION_FILE} -> {new_version}")
 
 
-def update_package_json(version: str) -> bool:
-    """Update version in package.json if it exists."""
-    import json
+def update_config_yaml(repo_root: Path, new_version: str) -> None:
+    """Update version in config.yaml."""
+    config_path = repo_root / CONFIG_YAML
+    if not config_path.exists():
+        print(f"  Warning: {CONFIG_YAML} not found, skipping")
+        return
 
-    package_file = get_project_root() / "package.json"
-
-    if not package_file.exists():
-        return False
-
-    try:
-        data = json.loads(package_file.read_text())
-        if "version" in data:
-            data["version"] = version
-            package_file.write_text(json.dumps(data, indent=2) + "\n")
-            print(f"  [OK] package.json -> {version}")
-            return True
-    except json.JSONDecodeError:
-        print(f"  [WARN] package.json - invalid JSON")
-
-    return False
-
-
-def sync_all(version: str) -> None:
-    """Sync version to all target files."""
-    print(f"\nSyncing version {version} to all targets:")
-
-    # Required targets
-    update_ha_addon_config(version)
-
-    # Optional targets (may not exist)
-    update_pyproject_toml(version)
-    update_package_json(version)
-
-    print("\nVersion sync complete.")
+    content = config_path.read_text()
+    updated = re.sub(
+        r'^version:\s*["\']?[\d.]+["\']?',
+        f'version: "{new_version}"',
+        content,
+        flags=re.MULTILINE
+    )
+    config_path.write_text(updated)
+    print(f"  Updated: {CONFIG_YAML} -> {new_version}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Sonorium version management",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
-    )
+    if len(sys.argv) != 2:
+        print(__doc__)
+        sys.exit(1)
 
-    parser.add_argument(
-        "--bump",
-        choices=["major", "minor", "patch"],
-        help="Bump version (major, minor, or patch)"
-    )
-    parser.add_argument(
-        "--set",
-        metavar="VERSION",
-        help="Set explicit version (e.g., 1.2.3)"
-    )
-    parser.add_argument(
-        "--sync",
-        action="store_true",
-        help="Sync current VERSION to all target files"
-    )
-
-    args = parser.parse_args()
+    bump_type = sys.argv[1].lower()
 
     try:
-        current_version = read_version()
-    except FileNotFoundError as e:
-        print(f"Error: {e}")
-        return 1
+        repo_root = get_repo_root()
+        current_version = read_version(repo_root)
+        new_version = bump_version(current_version, bump_type)
 
-    if args.bump:
-        new_version = bump_version(current_version, args.bump)
-        write_version(new_version)
-        sync_all(new_version)
-        print(f"\nVersion bumped: {current_version} -> {new_version}")
-    elif args.set:
-        # Validate version format
-        if not re.match(r"^\d+\.\d+\.\d+", args.set):
-            print(f"Error: Invalid version format: {args.set}")
-            return 1
-        write_version(args.set)
-        sync_all(args.set)
-        print(f"\nVersion set: {current_version} -> {args.set}")
-    elif args.sync:
-        sync_all(current_version)
-    else:
-        print(f"Current version: {current_version}")
-        print("\nUse --bump, --set, or --sync to modify version.")
+        print(f"Bumping version: {current_version} -> {new_version}")
+        print()
 
-    return 0
+        update_version_file(repo_root, new_version)
+        update_config_yaml(repo_root, new_version)
+
+        print()
+        print("Done! Now run:")
+        print("  python scripts/sync_shared.py")
+        print(f'  git add -A && git commit -m "chore: bump version to {new_version}"')
+        print("  git push sonobleedingedge main")
+
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    exit(main())
+    main()
