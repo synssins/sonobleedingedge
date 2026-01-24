@@ -2692,7 +2692,9 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
     @fastapi_app.post('/api/settings/speakers/disable')
     async def disable_speaker(request: dict):
-        """Disable a speaker (remove from enabled list)."""
+        """Disable a speaker (remove from enabled list) and stop any active streams."""
+        from sonorium.streaming import get_streaming_manager
+
         entity_id = request.get('entity_id', '')
         if entity_id.startswith('audio_device.'):
             # Disabling audio device - just ignore (can't disable local audio this way)
@@ -2720,6 +2722,21 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             # Now remove the disabled speaker
             if speaker_id in enabled:
                 enabled.remove(speaker_id)
+
+            # Stop any active stream to this speaker
+            streaming_manager = get_streaming_manager()
+            stream_session = streaming_manager.get_session(speaker_id)
+            if stream_session:
+                logger.info(f"Stopping stream to disabled speaker: {speaker_id}")
+                await streaming_manager.stop_streaming(speaker_id)
+
+            # Remove from all channel sessions that have this speaker
+            speaker_ref = f"network_speaker.{speaker_id}"
+            for session in _sessions.values():
+                if speaker_ref in session.speakers:
+                    logger.info(f"Removing disabled speaker {speaker_id} from session {session.id}")
+                    session.speakers.remove(speaker_ref)
+            _save_sessions_to_config()
 
             # Persist to config and memory
             config = get_config()
@@ -2752,7 +2769,31 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
 
     @fastapi_app.post('/api/settings/speakers/disable-all')
     async def disable_all_speakers():
-        """Disable all network speakers."""
+        """Disable all network speakers and stop all active streams."""
+        from sonorium.streaming import get_streaming_manager
+        from sonorium.network_speakers import get_discovered_speakers
+
+        # Stop all active network speaker streams
+        streaming_manager = get_streaming_manager()
+        discovered = get_discovered_speakers()
+        stopped_count = 0
+
+        for speaker in discovered:
+            speaker_id = speaker['id']
+            stream_session = streaming_manager.get_session(speaker_id)
+            if stream_session:
+                logger.info(f"Stopping stream to speaker: {speaker_id}")
+                await streaming_manager.stop_streaming(speaker_id)
+                stopped_count += 1
+
+        # Remove all network speakers from all channel sessions
+        for session in _sessions.values():
+            speakers_to_remove = [s for s in session.speakers if s.startswith('network_speaker.')]
+            for speaker_ref in speakers_to_remove:
+                logger.info(f"Removing speaker {speaker_ref} from session {session.id}")
+                session.speakers.remove(speaker_ref)
+        _save_sessions_to_config()
+
         # Use sentinel value to indicate "none enabled" (empty list means "all enabled")
         _app_instance.set_enabled_network_speakers(['__none__'])
 
@@ -2761,7 +2802,8 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         config.enabled_network_speakers = ['__none__']
         save_config()
 
-        return {'status': 'ok', 'enabled_count': 0}
+        logger.info(f"Disabled all speakers, stopped {stopped_count} active streams")
+        return {'status': 'ok', 'enabled_count': 0, 'stopped_streams': stopped_count}
 
     # --- Network Speakers ---
     # Native network speaker discovery (Chromecast, Sonos, DLNA)
