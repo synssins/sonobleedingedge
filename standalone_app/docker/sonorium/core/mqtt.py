@@ -18,15 +18,21 @@ State Topics (publish):
     sonorium/speakers/{id}/state        - Individual speaker state
     sonorium/sessions/state             - All sessions state
     sonorium/themes/state               - Available themes
+
+CORE CODE: This module is shared across all platforms.
 """
+
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, TYPE_CHECKING
 
-from ..models import MQTTSettings, Speaker, Session
-from .state import get_state_manager, StateManager
+from ..models import MQTTSettings
+
+if TYPE_CHECKING:
+    from .state import StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +47,10 @@ class MQTTBridge:
     Subscribes to control topics and publishes state changes.
     """
 
-    def __init__(self, settings: MQTTSettings):
+    def __init__(self, settings: MQTTSettings, state_store: Optional["StateStore"] = None):
         self.settings = settings
         self.prefix = settings.topic_prefix
+        self._state_store = state_store
         self._client = None
         self._connected = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -52,6 +59,14 @@ class MQTTBridge:
     @property
     def connected(self) -> bool:
         return self._connected
+
+    @property
+    def state_store(self) -> Optional["StateStore"]:
+        return self._state_store
+
+    @state_store.setter
+    def state_store(self, value: Optional["StateStore"]):
+        self._state_store = value
 
     # ─────────────────────────────────────────────────────────────
     # Connection Management
@@ -128,19 +143,19 @@ class MQTTBridge:
             logger.info(f"MQTT connected to {self.settings.host}:{self.settings.port}")
             self._connected = True
             self._subscribe_topics()
-            self._setup_state_listener()
 
             # Publish online status
             self._publish(f"{self.prefix}/status", {
                 "state": "online",
-                "version": "0.1.0"
+                "version": "0.2.0"
             }, retain=True)
 
             # Publish initial state
-            asyncio.run_coroutine_threadsafe(
-                self._publish_full_state(),
-                self._loop
-            )
+            if self._loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._publish_full_state(),
+                    self._loop
+                )
         else:
             logger.error(f"MQTT connection failed with code {rc}")
 
@@ -163,22 +178,6 @@ class MQTTBridge:
         for topic, qos in topics:
             self._client.subscribe(topic, qos)
             logger.debug(f"Subscribed to {topic}")
-
-    def _setup_state_listener(self):
-        """Subscribe to state changes for publishing."""
-        manager = get_state_manager()
-        self._unsubscribe_state = manager.on_change(self._on_state_change)
-
-    def _on_state_change(self, state, key: str):
-        """Called when state changes - publish updates."""
-        if not self._connected:
-            return
-
-        if self._loop:
-            asyncio.run_coroutine_threadsafe(
-                self._publish_state_update(key),
-                self._loop
-            )
 
     # ─────────────────────────────────────────────────────────────
     # Message Handling
@@ -206,107 +205,107 @@ class MQTTBridge:
 
     async def _handle_message(self, topic: str, payload: dict):
         """Route message to appropriate handler."""
-        manager = get_state_manager()
+        if not self._state_store:
+            logger.warning("No state store available for MQTT message handling")
+            return
 
         # Parse topic
         parts = topic.replace(self.prefix + "/", "").split("/")
 
         if parts[0] == "speakers":
-            await self._handle_speaker_command(parts, payload, manager)
+            await self._handle_speaker_command(parts, payload)
         elif parts[0] == "sessions":
-            await self._handle_session_command(parts, payload, manager)
+            await self._handle_session_command(parts, payload)
         elif parts[0] == "settings":
-            await self._handle_settings_command(payload, manager)
+            await self._handle_settings_command(payload)
         elif parts[0] == "command":
-            await self._handle_command(payload, manager)
+            await self._handle_command(payload)
 
-    async def _handle_speaker_command(self, parts: list, payload: dict, manager: StateManager):
+    async def _handle_speaker_command(self, parts: list, payload: dict):
         """Handle speaker control commands."""
+        if not self._state_store:
+            return
+
+        settings = self._state_store.settings
+
         if len(parts) >= 3 and parts[2] == "set":
             speaker_id = parts[1]
 
             if speaker_id == "all":
                 # Control all speakers
                 if payload.get("enabled") is True:
-                    manager.enable_all_speakers()
+                    settings.enabled_speakers = []  # Empty = all enabled
                     logger.info("MQTT: Enabled all speakers")
                 elif payload.get("enabled") is False:
-                    # Stop all sessions first
-                    for session in manager.get_active_sessions():
-                        session.mark_stopped()
-                    manager.disable_all_speakers()
+                    settings.enabled_speakers = ["__none__"]  # Special value = none enabled
                     logger.info("MQTT: Disabled all speakers")
+                self._state_store.save()
             else:
                 # Control specific speaker
                 if "enabled" in payload:
                     if payload["enabled"]:
-                        manager.enable_speaker(speaker_id)
+                        # Enable speaker
+                        if settings.enabled_speakers == ["__none__"]:
+                            settings.enabled_speakers = [speaker_id]
+                        elif speaker_id not in settings.enabled_speakers and settings.enabled_speakers:
+                            settings.enabled_speakers.append(speaker_id)
                         logger.info(f"MQTT: Enabled speaker {speaker_id}")
                     else:
-                        # Stop sessions for this speaker
-                        for session in manager.get_sessions_for_speaker(speaker_id):
-                            session.remove_speaker(speaker_id)
-                            if not session.speakers:
-                                session.mark_stopped()
-                        manager.disable_speaker(speaker_id)
+                        # Disable speaker
+                        if speaker_id in settings.enabled_speakers:
+                            settings.enabled_speakers.remove(speaker_id)
+                        if not settings.enabled_speakers:
+                            settings.enabled_speakers = ["__none__"]
                         logger.info(f"MQTT: Disabled speaker {speaker_id}")
+                    self._state_store.save()
 
-                if "volume" in payload:
-                    manager.set_speaker_volume(speaker_id, payload["volume"])
-                    logger.info(f"MQTT: Set speaker {speaker_id} volume to {payload['volume']}")
-
-    async def _handle_session_command(self, parts: list, payload: dict, manager: StateManager):
+    async def _handle_session_command(self, parts: list, payload: dict):
         """Handle session control commands."""
-        if len(parts) >= 2 and parts[1] == "set":
-            # Create new session
-            if "theme" in payload and "speakers" in payload:
-                from ..models import Session
-                session = Session.create(
-                    theme_id=payload["theme"],
-                    speaker_ids=payload["speakers"]
-                )
-                session.volume = payload.get("volume", 1.0)
-                manager.add_session(session)
-                session.mark_started()
-                logger.info(f"MQTT: Created session {session.id}")
+        if not self._state_store:
+            return
 
-        elif len(parts) >= 3 and parts[2] == "set":
+        if len(parts) >= 3 and parts[2] == "set":
             # Update existing session
             session_id = parts[1]
-            session = manager.get_session(session_id)
+            session = self._state_store.sessions.get(session_id)
             if session:
                 if payload.get("action") == "stop":
-                    session.mark_stopped()
+                    session.is_playing = False
+                    self._state_store.save()
                     logger.info(f"MQTT: Stopped session {session_id}")
                 if "volume" in payload:
                     session.volume = payload["volume"]
-                if "muted" in payload:
-                    session.muted = payload["muted"]
+                    self._state_store.save()
 
-    async def _handle_settings_command(self, payload: dict, manager: StateManager):
+    async def _handle_settings_command(self, payload: dict):
         """Handle settings update commands."""
-        updates = {}
-        if "master_volume" in payload:
-            updates["master_volume"] = payload["master_volume"]
-        if updates:
-            manager.update_settings(**updates)
-            logger.info(f"MQTT: Updated settings: {updates}")
+        if not self._state_store:
+            return
 
-    async def _handle_command(self, payload: dict, manager: StateManager):
+        settings = self._state_store.settings
+        updated = False
+
+        if "master_gain" in payload:
+            settings.master_gain = payload["master_gain"]
+            updated = True
+        if "default_volume" in payload:
+            settings.default_volume = payload["default_volume"]
+            updated = True
+
+        if updated:
+            self._state_store.save()
+            logger.info(f"MQTT: Updated settings")
+
+    async def _handle_command(self, payload: dict):
         """Handle generic commands."""
         action = payload.get("action", "")
 
-        if action == "discover_speakers":
-            # TODO: Trigger discovery via plugin manager
-            logger.info("MQTT: Speaker discovery triggered")
-
-        elif action == "scan_themes":
-            # TODO: Trigger theme scan
-            logger.info("MQTT: Theme scan triggered")
-
-        elif action == "stop_all":
-            for session in manager.get_active_sessions():
-                session.mark_stopped()
+        if action == "stop_all":
+            if self._state_store:
+                for session in self._state_store.sessions.values():
+                    if session.is_playing:
+                        session.is_playing = False
+                self._state_store.save()
             logger.info("MQTT: Stopped all sessions")
 
     # ─────────────────────────────────────────────────────────────
@@ -321,60 +320,35 @@ class MQTTBridge:
 
     async def _publish_full_state(self):
         """Publish complete state to MQTT."""
-        manager = get_state_manager()
-        state = manager.state
-
-        # Publish speakers
-        speakers_data = {sid: s.to_dict() for sid, s in state.speakers.items()}
-        self._publish(f"{self.prefix}/speakers/state", speakers_data, retain=True)
-
-        # Publish individual speaker states
-        for speaker_id, speaker in state.speakers.items():
-            self._publish(
-                f"{self.prefix}/speakers/{speaker_id}/state",
-                speaker.to_dict(),
-                retain=True
-            )
+        if not self._state_store:
+            return
 
         # Publish sessions
-        sessions_data = {sid: s.to_dict() for sid, s in state.sessions.items() if s.is_active}
+        sessions_data = {
+            sid: s.to_dict()
+            for sid, s in self._state_store.sessions.items()
+        }
         self._publish(f"{self.prefix}/sessions/state", sessions_data, retain=True)
 
-        # Publish themes
-        themes_data = {tid: t.to_dict() for tid, t in state.themes.items()}
-        self._publish(f"{self.prefix}/themes/state", themes_data, retain=True)
+        # Publish settings
+        self._publish(
+            f"{self.prefix}/settings/state",
+            self._state_store.settings.to_dict(),
+            retain=True
+        )
 
         logger.debug("Published full state to MQTT")
 
-    async def _publish_state_update(self, key: str):
-        """Publish state update for specific key."""
-        manager = get_state_manager()
-        state = manager.state
+    async def publish_session_state(self, session_id: str):
+        """Publish state update for a specific session."""
+        if not self._state_store:
+            return
 
-        if key == "speakers":
-            speakers_data = {sid: s.to_dict() for sid, s in state.speakers.items()}
-            self._publish(f"{self.prefix}/speakers/state", speakers_data, retain=True)
-
-            # Also publish individual states
-            for speaker_id, speaker in state.speakers.items():
-                self._publish(
-                    f"{self.prefix}/speakers/{speaker_id}/state",
-                    speaker.to_dict(),
-                    retain=True
-                )
-
-        elif key == "sessions":
-            sessions_data = {sid: s.to_dict() for sid, s in state.sessions.items() if s.is_active}
-            self._publish(f"{self.prefix}/sessions/state", sessions_data, retain=True)
-
-        elif key == "themes":
-            themes_data = {tid: t.to_dict() for tid, t in state.themes.items()}
-            self._publish(f"{self.prefix}/themes/state", themes_data, retain=True)
-
-        elif key == "settings":
+        session = self._state_store.sessions.get(session_id)
+        if session:
             self._publish(
-                f"{self.prefix}/settings/state",
-                state.settings.to_dict(),
+                f"{self.prefix}/sessions/{session_id}/state",
+                session.to_dict(),
                 retain=True
             )
 
@@ -387,7 +361,6 @@ class MQTTBridge:
         if not self.settings.ha_discovery_enabled:
             return
 
-        manager = get_state_manager()
         prefix = self.settings.ha_discovery_prefix
 
         # Publish Sonorium status sensor
@@ -409,29 +382,6 @@ class MQTTBridge:
             retain=True
         )
 
-        # Publish speaker switches
-        for speaker_id, speaker in manager.state.speakers.items():
-            safe_id = speaker_id.replace("-", "_").replace(":", "_")
-
-            self._publish(
-                f"{prefix}/switch/sonorium_{safe_id}/config",
-                {
-                    "name": f"Sonorium {speaker.name}",
-                    "unique_id": f"sonorium_speaker_{safe_id}",
-                    "state_topic": f"{self.prefix}/speakers/{speaker_id}/state",
-                    "command_topic": f"{self.prefix}/speakers/{speaker_id}/set",
-                    "value_template": "{{ 'ON' if value_json.enabled else 'OFF' }}",
-                    "payload_on": '{"enabled": true}',
-                    "payload_off": '{"enabled": false}',
-                    "icon": "mdi:speaker",
-                    "device": {
-                        "identifiers": ["sonorium"],
-                        "name": "Sonorium",
-                    }
-                },
-                retain=True
-            )
-
         logger.info("Published Home Assistant MQTT discovery")
 
 
@@ -439,7 +389,10 @@ class MQTTBridge:
 # Module-level functions
 # ─────────────────────────────────────────────────────────────────────
 
-async def init_mqtt_bridge(settings: MQTTSettings) -> Optional[MQTTBridge]:
+async def init_mqtt_bridge(
+    settings: MQTTSettings,
+    state_store: Optional["StateStore"] = None
+) -> Optional[MQTTBridge]:
     """Initialize the global MQTT bridge."""
     global _mqtt_bridge
 
@@ -447,7 +400,7 @@ async def init_mqtt_bridge(settings: MQTTSettings) -> Optional[MQTTBridge]:
         logger.info("MQTT disabled")
         return None
 
-    _mqtt_bridge = MQTTBridge(settings)
+    _mqtt_bridge = MQTTBridge(settings, state_store)
     if await _mqtt_bridge.connect():
         # Publish HA discovery
         await _mqtt_bridge.publish_ha_discovery()

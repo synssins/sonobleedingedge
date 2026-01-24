@@ -494,22 +494,23 @@ class SonoriumApp:
                 logger.warning(f"Failed to initialize plugin manager: {e}")
                 self._plugin_manager = None
 
-            # Create and mount v2 API router if available
+            # Create and mount API router
             try:
-                from .api_v2 import create_api_router
+                from .api import create_api_router
                 api_router = create_api_router(
+                    state_store=self._state_store,
                     session_manager=self._session_manager,
                     group_manager=self._group_manager,
-                    ha_registry=self._ha_registry,
-                    state_store=self._state_store,
+                    speaker_registry=self._ha_registry,
                     plugin_manager=self._plugin_manager,
+                    platform="ha_addon",
                 )
                 self.app.include_router(api_router)
-                logger.info("API v2 router mounted")
-            except ImportError:
-                logger.info("API v2 router not available")
+                logger.info("API router mounted")
+            except ImportError as e:
+                logger.info(f"API router not available: {e}")
             except Exception as e:
-                logger.warning(f"Failed to mount API v2 router: {e}")
+                logger.warning(f"Failed to mount API router: {e}")
 
             self._initialized = True
             logger.info("Sonorium v2 components initialized")

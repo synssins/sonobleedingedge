@@ -4,13 +4,19 @@ Sonorium core modules.
 State management, streaming, MQTT bridge, and core functionality.
 """
 
+# State management - StateStore is the primary class
 from .state import (
+    StateStore,
     SonoriumState,
-    StateManager,
-    get_state_manager,
-    init_state_manager,
+    SonoriumSettings,
+    Session,
+    SpeakerGroup,
+    SpeakerSelection,
+    CycleConfig,
+    NameSource,
 )
 
+# MQTT bridge
 from .mqtt import (
     MQTTBridge,
     init_mqtt_bridge,
@@ -18,6 +24,7 @@ from .mqtt import (
     get_mqtt_bridge,
 )
 
+# Streaming engine
 from .streaming import (
     StreamState,
     StreamSession,
@@ -26,6 +33,7 @@ from .streaming import (
     init_streaming_engine,
 )
 
+# Audio mixer
 from .mixer import (
     TrackState,
     ActiveTrack,
@@ -35,6 +43,7 @@ from .mixer import (
     init_audio_mixer,
 )
 
+# Theme management
 from .themes import (
     ThemeManager,
     get_theme_manager,
@@ -43,10 +52,14 @@ from .themes import (
 
 __all__ = [
     # State
+    "StateStore",
     "SonoriumState",
-    "StateManager",
-    "get_state_manager",
-    "init_state_manager",
+    "SonoriumSettings",
+    "Session",
+    "SpeakerGroup",
+    "SpeakerSelection",
+    "CycleConfig",
+    "NameSource",
     # MQTT
     "MQTTBridge",
     "init_mqtt_bridge",
