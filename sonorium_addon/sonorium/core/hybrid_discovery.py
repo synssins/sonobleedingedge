@@ -133,6 +133,8 @@ class HybridSpeakerManager:
                 "volume": speaker.volume,
                 **speaker.extra,
             },
+            # Track original speaker ID for enable/disable operations
+            original_ids={speaker.id} if speaker.id else set(),
         )
 
     async def discover_all(self) -> list[UnifiedSpeaker]:

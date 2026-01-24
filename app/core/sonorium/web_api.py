@@ -2329,6 +2329,8 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                         'status': sp.get('status'),
                         'available': sp.get('available', True),
                     },
+                    # Track original speaker ID for enable/disable operations
+                    original_ids={original_id} if original_id else set(),
                 )
 
                 # Add to deduplicator (merges if duplicate found by IP/MAC/UUID)
@@ -2340,12 +2342,11 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             for speaker in deduplicated:
                 speaker_dict = speaker.to_dict()
 
-                # Collect ALL original IDs for this merged speaker
-                original_ids = []
-                if speaker.ip_address and speaker.ip_address in ip_to_original_ids:
+                # Get original_ids from the merged speaker (includes all protocol IDs)
+                # Fall back to IP lookup for backwards compatibility
+                original_ids = speaker.original_ids_list
+                if not original_ids and speaker.ip_address and speaker.ip_address in ip_to_original_ids:
                     original_ids = ip_to_original_ids[speaker.ip_address]
-                elif speaker.extra.get('original_id'):
-                    original_ids = [speaker.extra['original_id']]
 
                 # Determine if speaker is enabled (any of its original IDs in enabled list)
                 if is_all_enabled:

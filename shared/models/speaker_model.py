@@ -97,10 +97,16 @@ class UnifiedSpeaker:
     # Protocol-specific data
     extra: dict = field(default_factory=dict)
 
+    # Original speaker IDs before deduplication (used for enable/disable)
+    # Contains the original protocol-specific IDs like "dlna_FF31F09E...", "sonos_RINCON..."
+    original_ids: Set[str] = field(default_factory=set)
+
     def __post_init__(self):
-        """Ensure found_by is a set."""
+        """Ensure found_by and original_ids are sets."""
         if isinstance(self.found_by, list):
             self.found_by = set(self.found_by)
+        if isinstance(self.original_ids, list):
+            self.original_ids = set(self.original_ids)
 
     @property
     def has_ha_entity(self) -> bool:
@@ -116,6 +122,11 @@ class UnifiedSpeaker:
     def found_by_list(self) -> list[str]:
         """Get found_by as a sorted list (for API serialization)."""
         return sorted(self.found_by)
+
+    @property
+    def original_ids_list(self) -> list[str]:
+        """Get original_ids as a sorted list (for API serialization)."""
+        return sorted(self.original_ids)
 
     def to_dict(self) -> dict:
         """Serialize to dict for API responses."""
@@ -136,6 +147,7 @@ class UnifiedSpeaker:
             "model": self.model,
             "manufacturer": self.manufacturer,
             "capabilities": self.capabilities,
+            "original_ids": self.original_ids_list,
         }
 
     @classmethod
@@ -144,6 +156,10 @@ class UnifiedSpeaker:
         found_by = data.get("found_by", [])
         if isinstance(found_by, list):
             found_by = set(found_by)
+
+        original_ids = data.get("original_ids", [])
+        if isinstance(original_ids, list):
+            original_ids = set(original_ids)
 
         control = data.get("preferred_control", "direct")
         if isinstance(control, str):
@@ -167,6 +183,7 @@ class UnifiedSpeaker:
             manufacturer=data.get("manufacturer"),
             capabilities=data.get("capabilities", []),
             extra=data.get("extra", {}),
+            original_ids=original_ids,
         )
 
     def merge_with(self, other: "UnifiedSpeaker") -> "UnifiedSpeaker":
@@ -193,6 +210,9 @@ class UnifiedSpeaker:
 
         # Combine found_by sources
         combined_found_by = self.found_by | other.found_by
+
+        # Combine original_ids (all protocol-specific IDs from both speakers)
+        combined_original_ids = self.original_ids | other.original_ids
 
         # Prefer HA entity_id if available
         entity_id = self.entity_id or other.entity_id
@@ -241,6 +261,7 @@ class UnifiedSpeaker:
             manufacturer=self.manufacturer or other.manufacturer,
             capabilities=combined_caps,
             extra=merged_extra,
+            original_ids=combined_original_ids,
         )
 
         logger.debug(
