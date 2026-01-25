@@ -373,12 +373,11 @@ async function loadChannels() {
     try {
         const channels = await api.getChannels();
         state.channels = Array.isArray(channels) ? channels : [];
+        renderChannels();
+        updatePlayingBadge();
     } catch (error) {
         console.error('Failed to load channels:', error);
-        state.channels = [];
     }
-    renderChannels();
-    updatePlayingBadge();
 }
 
 function renderChannels() {

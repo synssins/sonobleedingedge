@@ -15,13 +15,6 @@
             link.rel = 'stylesheet';
             link.href = window.SONORIUM_BASE + '/static/css/styles.css';
             document.head.appendChild(link);
-
-            // Dynamically load favicon with correct path
-            var favicon = document.createElement('link');
-            favicon.rel = 'icon';
-            favicon.type = 'image/png';
-            favicon.href = window.SONORIUM_BASE + '/icon.png';
-            document.head.appendChild(favicon);
         })();
     </script>
 </head>
@@ -30,14 +23,9 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
-                <img src="" alt="Sonorium" class="logo-img" id="sidebar-logo-img" onerror="this.style.display='none'">
                 <span class="logo-text">Sonorium</span>
             </div>
         </div>
-        <script>
-            // Set logo src after SONORIUM_BASE is defined
-            document.getElementById('sidebar-logo-img').src = (window.SONORIUM_BASE || '') + '/logo.png';
-        </script>
 
         <nav class="sidebar-nav">
             <div class="nav-section">
