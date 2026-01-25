@@ -6,15 +6,27 @@
     <title>Sonorium</title>
     <script>
         // Determine base path for ingress support and store globally
+        // Assets:
+        //   logo.png = Full logo (icon + "Sonorium" text) - for sidebar header
+        //   icon.png = Icon only - for app icon uses
+        //   favicon.png = Small icon - for browser tab
         (function() {
             var path = window.location.pathname;
-            window.SONORIUM_BASE = path.replace(/\/?(index\.html)?$/, '') || '';
+            // Normalize base path without trailing slash
+            window.SONORIUM_BASE = path.replace(/\/?(index\.html)?$/, '').replace(/\/$/, '') || '';
 
             // Dynamically load CSS with correct path
             var link = document.createElement('link');
             link.rel = 'stylesheet';
             link.href = window.SONORIUM_BASE + '/static/css/styles.css';
             document.head.appendChild(link);
+
+            // Dynamically load favicon
+            var favicon = document.createElement('link');
+            favicon.rel = 'icon';
+            favicon.type = 'image/png';
+            favicon.href = window.SONORIUM_BASE + '/static/img/favicon.png';
+            document.head.appendChild(favicon);
         })();
     </script>
 </head>
@@ -23,9 +35,14 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
-                <span class="logo-text">Sonorium</span>
+                <!-- logo.png contains icon + "Sonorium" text as single image -->
+                <img id="sidebar-logo" alt="Sonorium" style="height: 32px;">
             </div>
         </div>
+        <script>
+            // Set logo src after SONORIUM_BASE is defined
+            document.getElementById('sidebar-logo').src = window.SONORIUM_BASE + '/static/img/logo.png';
+        </script>
 
         <nav class="sidebar-nav">
             <div class="nav-section">

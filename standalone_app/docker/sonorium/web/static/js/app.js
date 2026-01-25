@@ -290,6 +290,20 @@ async function loadThemes() {
         updateChannelModalThemes();
     } catch (error) {
         console.error('Failed to load themes:', error);
+        // Show error state instead of infinite spinner
+        state.themes = [];
+        const container = document.getElementById('themes-browser');
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state error-state">
+                    <h3>Unable to load themes</h3>
+                    <p>Could not connect to Sonorium backend</p>
+                    <button class="btn btn-secondary" onclick="loadThemes()">
+                        Retry
+                    </button>
+                </div>
+            `;
+        }
     }
 }
 
@@ -377,6 +391,20 @@ async function loadChannels() {
         updatePlayingBadge();
     } catch (error) {
         console.error('Failed to load channels:', error);
+        // Show error state instead of infinite spinner
+        state.channels = [];
+        const container = document.getElementById('channels-container');
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state error-state">
+                    <h3>Unable to load channels</h3>
+                    <p>Could not connect to Sonorium backend</p>
+                    <button class="btn btn-secondary" onclick="loadChannels()">
+                        Retry
+                    </button>
+                </div>
+            `;
+        }
     }
 }
 

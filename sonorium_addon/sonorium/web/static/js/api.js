@@ -19,8 +19,10 @@ class SonoriumAPI {
     }
 
     async request(method, endpoint, data = null) {
-        // Use relative URL (no leading slash) for ingress compatibility
-        const url = `${this.baseUrl}api${endpoint}`;
+        // Build URL with proper slash handling
+        // baseUrl may be empty, "/path", or "/path/" - normalize to ensure single slash before "api"
+        const base = this.baseUrl.replace(/\/$/, '');  // Remove trailing slash if present
+        const url = base ? `${base}/api${endpoint}` : `/api${endpoint}`;
         const options = {
             method,
             headers: {
