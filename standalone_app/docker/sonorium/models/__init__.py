@@ -39,13 +39,29 @@ from .channel import (
     Channel,
 )
 
+# Unified speaker model (for deduplication across multiple sources)
+from .speaker_model import (
+    UnifiedSpeaker,
+    DiscoverySource as UnifiedDiscoverySource,
+    ControlMethod,
+)
+
+from .speaker_dedup import (
+    SpeakerDeduplicator,
+)
+
 __all__ = [
-    # Speaker
+    # Speaker (simple model)
     "Speaker",
     "SpeakerProtocol",
     "SpeakerState",
     "DiscoverySource",
     "generate_speaker_id",
+    # Unified Speaker (deduplication model)
+    "UnifiedSpeaker",
+    "UnifiedDiscoverySource",
+    "ControlMethod",
+    "SpeakerDeduplicator",
     # Theme
     "Theme",
     "Track",

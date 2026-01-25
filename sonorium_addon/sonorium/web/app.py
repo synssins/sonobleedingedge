@@ -418,17 +418,23 @@ class SonoriumApp:
             # These imports are done here to allow the app to run without HA
             # on platforms where HA integration is not available
             from ..core.state import StateStore
+            from ..core.session_manager import SessionManager
+            from ..core.group_manager import GroupManager
 
             # Initialize state store
             self._state_store = StateStore()
             self._state_store.load()
 
+            # Initialize managers first (platform-agnostic, work without HA)
+            # They'll use optional HA dependencies when available
+            self._session_manager = SessionManager(self._state_store)
+            self._group_manager = GroupManager(self._state_store)
+            logger.info("Core managers initialized (SessionManager, GroupManager)")
+
             # Try to initialize HA components (may not be available on all platforms)
             try:
                 from ..ha.registry import HARegistry
                 from ..ha.media_controller import HAMediaController
-                from ..core.session_manager import SessionManager
-                from ..core.group_manager import GroupManager
 
                 # Get settings
                 if settings is None:
@@ -452,20 +458,13 @@ class SonoriumApp:
                 stream_base_url = settings.stream_url
                 logger.info(f"Using stream base URL: {stream_base_url}")
 
-                # Initialize managers
-                self._session_manager = SessionManager(
-                    self._state_store,
-                    self._ha_registry,
-                    self._media_controller,
-                    stream_base_url,
-                )
+                # Inject HA dependencies into managers
+                self._session_manager.set_speaker_registry(self._ha_registry)
+                self._session_manager.set_media_controller(self._media_controller)
+                self._session_manager.set_stream_base_url(stream_base_url)
+                self._group_manager.set_speaker_registry(self._ha_registry)
 
-                self._group_manager = GroupManager(
-                    self._state_store,
-                    self._ha_registry,
-                )
-
-                logger.info("HA integration initialized")
+                logger.info("HA integration initialized and injected into managers")
 
             except ImportError as e:
                 logger.info(f"HA integration not available: {e}")

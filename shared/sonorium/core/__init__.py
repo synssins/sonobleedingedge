@@ -2,6 +2,8 @@
 Sonorium core modules.
 
 State management, streaming, MQTT bridge, and core functionality.
+
+CORE CODE: This module is shared across all platforms.
 """
 
 # State management - StateStore is the primary class
@@ -50,6 +52,45 @@ from .themes import (
     init_theme_manager,
 )
 
+# Session and Group managers
+from .session_manager import SessionManager
+from .group_manager import GroupManager
+
+# Cycle manager
+from .cycle_manager import CycleManager
+
+# Theme metadata
+from .theme_metadata import (
+    ThemeMetadata,
+    ThemeMetadataManager,
+    TrackSettings,
+)
+
+# Log collector
+from .log_collector import (
+    LogCollector,
+    LogEntry,
+    LogLevel as LogCollectorLevel,
+    LogCategory,
+    get_log_collector,
+    log,
+    log_info,
+    log_error,
+    log_warning,
+    log_debug,
+)
+
+# Utilities
+from .utils import (
+    IndexList,
+    sanitize,
+    safe_filename,
+    get_local_ip,
+    get_host_network_ip,
+    get_target_subnet,
+    is_docker_network,
+)
+
 __all__ = [
     # State
     "StateStore",
@@ -82,4 +123,32 @@ __all__ = [
     "ThemeManager",
     "get_theme_manager",
     "init_theme_manager",
+    # Session/Group managers
+    "SessionManager",
+    "GroupManager",
+    # Cycle manager
+    "CycleManager",
+    # Theme metadata
+    "ThemeMetadata",
+    "ThemeMetadataManager",
+    "TrackSettings",
+    # Log collector
+    "LogCollector",
+    "LogEntry",
+    "LogCollectorLevel",
+    "LogCategory",
+    "get_log_collector",
+    "log",
+    "log_info",
+    "log_error",
+    "log_warning",
+    "log_debug",
+    # Utilities
+    "IndexList",
+    "sanitize",
+    "safe_filename",
+    "get_local_ip",
+    "get_host_network_ip",
+    "get_target_subnet",
+    "is_docker_network",
 ]
