@@ -10,6 +10,9 @@ on:
     paths:
       - 'shared/sonorium/VERSION'
 
+permissions:
+  contents: write
+
 jobs:
   sync-version:
     runs-on: ubuntu-latest
