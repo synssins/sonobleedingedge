@@ -91,6 +91,42 @@ from .utils import (
     is_docker_network,
 )
 
+# Track/Recording engine (audio streaming)
+from .track import (
+    ExclusionGroupCoordinator,
+    PlaybackMode,
+    TrackMetadata,
+    TrackInstance,
+    TrackStream,
+    CrossfadeTrackStream,
+    SparsePlaybackStream,
+    PresenceMixingStream,
+    SAMPLE_RATE,
+    CROSSFADE_SAMPLES,
+    TRACK_FADE_SAMPLES,
+)
+
+# Theme streaming
+from .theme_stream import (
+    ThemeDefinition,
+    ThemeStream,
+)
+
+# Backward compatibility
+from .recording import (
+    RecordingMetadata,
+    RecordingThemeInstance,
+    RecordingThemeStream,
+    CrossfadeRecordingStream,
+)
+
+# Speaker coordination
+from .speaker_coordinator import (
+    SpeakerCoordinator,
+    get_speaker_coordinator,
+    init_speaker_coordinator,
+)
+
 __all__ = [
     # State
     "StateStore",
@@ -151,4 +187,28 @@ __all__ = [
     "get_host_network_ip",
     "get_target_subnet",
     "is_docker_network",
+    # Track/Recording engine
+    "ExclusionGroupCoordinator",
+    "PlaybackMode",
+    "TrackMetadata",
+    "TrackInstance",
+    "TrackStream",
+    "CrossfadeTrackStream",
+    "SparsePlaybackStream",
+    "PresenceMixingStream",
+    "SAMPLE_RATE",
+    "CROSSFADE_SAMPLES",
+    "TRACK_FADE_SAMPLES",
+    # Theme streaming
+    "ThemeDefinition",
+    "ThemeStream",
+    # Backward compatibility
+    "RecordingMetadata",
+    "RecordingThemeInstance",
+    "RecordingThemeStream",
+    "CrossfadeRecordingStream",
+    # Speaker coordination
+    "SpeakerCoordinator",
+    "get_speaker_coordinator",
+    "init_speaker_coordinator",
 ]

@@ -1,0 +1,1561 @@
+"""
+MQTT Entity Management for Sonorium Sessions
+
+Creates and manages Home Assistant entities via MQTT Discovery:
+- switch.sonorium_{session}_play - Play/pause toggle
+- select.sonorium_{session}_theme - Theme selector
+- select.sonorium_{session}_preset - Preset selector (per-theme)
+- number.sonorium_{session}_volume - Volume control
+- sensor.sonorium_{session}_status - Current status
+- sensor.sonorium_{session}_speakers - Speaker info
+"""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Callable, Awaitable
+from dataclasses import dataclass
+
+from sonorium.obs import logger
+
+if TYPE_CHECKING:
+    from sonorium.core.state import Session, StateStore
+    from sonorium.core.session_manager import SessionManager
+
+
+@dataclass
+class EntityConfig:
+    """Configuration for an MQTT entity."""
+    component: str  # switch, select, number, sensor
+    object_id: str  # unique id suffix
+    name: str
+    config: dict  # additional config
+
+
+class SessionMQTTEntities:
+    """
+    Manages MQTT entities for a single session.
+
+    Creates HA entities that mirror session state and allow control.
+    """
+
+    def __init__(
+        self,
+        session: Session,
+        entity_prefix: str,
+        mqtt_publish: Callable[[str, str, bool], Awaitable[None]],
+        device_info: dict,
+        themes: list[dict] = None,
+        get_presets_for_theme: Callable[[str], list[dict]] = None,
+    ):
+        """
+        Initialize entity manager for a session.
+
+        Args:
+            session: The session to create entities for
+            entity_prefix: Prefix for entity IDs (e.g., "sonorium")
+            mqtt_publish: Async function to publish MQTT messages
+            device_info: HA device info dict for grouping entities
+            themes: List of available themes for select entity
+            get_presets_for_theme: Callback to get presets for a theme ID
+        """
+        self.session = session
+        self.prefix = entity_prefix
+        self.mqtt_publish = mqtt_publish
+        self.device_info = device_info
+        self.themes = themes or []
+        self.get_presets_for_theme = get_presets_for_theme
+
+        self.slug = session.get_entity_slug()
+        self.base_topic = f"homeassistant"
+        self.state_topic_base = f"{entity_prefix}/{self.slug}"
+
+        # Theme name/ID mappings (populated in _publish_theme_select)
+        self._theme_name_to_id: dict[str, str] = {}
+        self._theme_id_to_name: dict[str, str] = {}
+
+        # Preset name/ID mappings (populated in _publish_preset_select)
+        self._preset_name_to_id: dict[str, str] = {}
+        self._preset_id_to_name: dict[str, str] = {}
+
+    def _get_unique_id(self, suffix: str) -> str:
+        """Generate unique ID for an entity."""
+        return f"{self.prefix}_{self.slug}_{suffix}"
+
+    def _get_discovery_topic(self, component: str, suffix: str) -> str:
+        """Generate MQTT discovery topic."""
+        unique_id = self._get_unique_id(suffix)
+        return f"{self.base_topic}/{component}/{unique_id}/config"
+
+    async def publish_discovery(self):
+        """Publish MQTT discovery configs for all session entities."""
+        import asyncio
+
+        # Small delays between entity publications to prevent overwhelming
+        # HA's MQTT discovery processor
+        await self._publish_play_switch()
+        await asyncio.sleep(0.05)
+        await self._publish_theme_select()
+        await asyncio.sleep(0.05)
+        await self._publish_preset_select()
+        await asyncio.sleep(0.05)
+        await self._publish_volume_number()
+        await asyncio.sleep(0.05)
+        await self._publish_status_sensor()
+        await asyncio.sleep(0.05)
+        await self._publish_speakers_sensor()
+
+        logger.info(f"Published MQTT discovery for session '{self.session.name}'")
+
+    async def remove_discovery(self):
+        """Remove MQTT discovery configs (publish empty payloads)."""
+        entities = [
+            ("switch", "play"),
+            ("select", "theme"),
+            ("select", "preset"),
+            ("number", "volume"),
+            ("sensor", "status"),
+            ("sensor", "speakers"),
+        ]
+
+        for component, suffix in entities:
+            topic = self._get_discovery_topic(component, suffix)
+            await self.mqtt_publish(topic, "", retain=True)
+
+        logger.info(f"Removed MQTT discovery for session '{self.session.name}'")
+
+    async def update_state(self):
+        """Publish current state for all entities."""
+        # Play switch state
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/play/state",
+            "ON" if self.session.is_playing else "OFF",
+            retain=True,
+        )
+
+        # Theme select state (use name, not ID)
+        theme_name = self._theme_id_to_name.get(self.session.theme_id, "") if self.session.theme_id else ""
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/theme/state",
+            theme_name,
+            retain=True,
+        )
+
+        # Preset select state (use name, not ID)
+        preset_name = self._preset_id_to_name.get(self.session.preset_id, "") if self.session.preset_id else ""
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/preset/state",
+            preset_name,
+            retain=True,
+        )
+
+        # Volume number state
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/volume/state",
+            str(self.session.volume),
+            retain=True,
+        )
+
+        # Status sensor
+        if self.session.is_playing and self.session.theme_id:
+            theme_name = self._get_theme_name(self.session.theme_id)
+            status = f"Playing: {theme_name}"
+        else:
+            status = "Stopped"
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/status/state",
+            status,
+            retain=True,
+        )
+
+    def _get_theme_name(self, theme_id: str) -> str:
+        """Get theme name from ID."""
+        for theme in self.themes:
+            if theme.get("id") == theme_id:
+                return theme.get("name", theme_id)
+        return theme_id
+
+    async def _publish_play_switch(self):
+        """Publish play/pause switch discovery."""
+        unique_id = self._get_unique_id("play")
+        config = {
+            "name": f"{self.session.name} Play",
+            "unique_id": unique_id,
+            "default_entity_id": f"switch.{self.prefix}_{self.slug}_play",
+            "state_topic": f"{self.state_topic_base}/play/state",
+            "command_topic": f"{self.state_topic_base}/play/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:play-pause",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("switch", "play")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_theme_select(self):
+        """Publish theme selector discovery."""
+        unique_id = self._get_unique_id("theme")
+
+        # Build options list from themes - use NAMES not IDs
+        # Also build mappings for converting between names and IDs
+        options = [""]
+        self._theme_name_to_id = {}
+        self._theme_id_to_name = {}
+        for t in self.themes:
+            theme_id = t.get("id")
+            theme_name = t.get("name")
+            if theme_id and theme_name:
+                options.append(theme_name)
+                self._theme_name_to_id[theme_name] = theme_id
+                self._theme_id_to_name[theme_id] = theme_name
+
+        config = {
+            "name": f"{self.session.name} Theme",
+            "unique_id": unique_id,
+            "default_entity_id": f"select.{self.prefix}_{self.slug}_theme",
+            "state_topic": f"{self.state_topic_base}/theme/state",
+            "command_topic": f"{self.state_topic_base}/theme/set",
+            "options": options,
+            "icon": "mdi:music-box-multiple",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("select", "theme")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_preset_select(self):
+        """Publish preset selector discovery."""
+        unique_id = self._get_unique_id("preset")
+
+        # Get presets for the current theme - use NAMES not IDs
+        options = [""]  # Empty option for "no preset"
+        self._preset_name_to_id = {}
+        self._preset_id_to_name = {}
+        if self.session.theme_id and self.get_presets_for_theme:
+            presets = self.get_presets_for_theme(self.session.theme_id)
+            for p in presets:
+                preset_id = p.get("id")
+                preset_name = p.get("name", preset_id)  # Fall back to ID if no name
+                if preset_id:
+                    options.append(preset_name)
+                    self._preset_name_to_id[preset_name] = preset_id
+                    self._preset_id_to_name[preset_id] = preset_name
+
+        config = {
+            "name": f"{self.session.name} Preset",
+            "unique_id": unique_id,
+            "default_entity_id": f"select.{self.prefix}_{self.slug}_preset",
+            "state_topic": f"{self.state_topic_base}/preset/state",
+            "command_topic": f"{self.state_topic_base}/preset/set",
+            "options": options,
+            "icon": "mdi:tune-variant",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("select", "preset")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def update_preset_options(self):
+        """Re-publish preset select with updated options when theme changes."""
+        await self._publish_preset_select()
+
+    async def _publish_volume_number(self):
+        """Publish volume control discovery."""
+        unique_id = self._get_unique_id("volume")
+        config = {
+            "name": f"{self.session.name} Volume",
+            "unique_id": unique_id,
+            "default_entity_id": f"number.{self.prefix}_{self.slug}_volume",
+            "state_topic": f"{self.state_topic_base}/volume/state",
+            "command_topic": f"{self.state_topic_base}/volume/set",
+            "min": 0,
+            "max": 100,
+            "step": 5,
+            "unit_of_measurement": "%",
+            "icon": "mdi:volume-high",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("number", "volume")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_status_sensor(self):
+        """Publish status sensor discovery."""
+        unique_id = self._get_unique_id("status")
+        config = {
+            "name": f"{self.session.name} Status",
+            "unique_id": unique_id,
+            "default_entity_id": f"sensor.{self.prefix}_{self.slug}_status",
+            "state_topic": f"{self.state_topic_base}/status/state",
+            "icon": "mdi:information-outline",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("sensor", "status")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_speakers_sensor(self):
+        """Publish speakers info sensor discovery."""
+        unique_id = self._get_unique_id("speakers")
+        config = {
+            "name": f"{self.session.name} Speakers",
+            "unique_id": unique_id,
+            "default_entity_id": f"sensor.{self.prefix}_{self.slug}_speakers",
+            "state_topic": f"{self.state_topic_base}/speakers/state",
+            "icon": "mdi:speaker-multiple",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("sensor", "speakers")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def update_speakers_sensor(self, speaker_summary: str):
+        """Update the speakers sensor with current selection."""
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/speakers/state",
+            speaker_summary,
+            retain=True,
+        )
+
+
+class DirectSpeakerMQTTEntities:
+    """
+    Manages MQTT entities for a direct-discovered speaker (not in HA).
+
+    Creates HA entities that allow controlling speakers discovered by Sonorium
+    but not natively integrated with Home Assistant.
+
+    Entities created:
+    - switch.sonorium_speaker_{slug}_play - Play/stop toggle
+    - number.sonorium_speaker_{slug}_volume - Volume control
+    - sensor.sonorium_speaker_{slug}_info - Status info
+    """
+
+    def __init__(
+        self,
+        speaker,  # UnifiedSpeaker
+        entity_prefix: str,
+        mqtt_publish: Callable[[str, str, bool], Awaitable[None]],
+        device_info: dict,
+    ):
+        """
+        Initialize entity manager for a direct speaker.
+
+        Args:
+            speaker: UnifiedSpeaker from direct discovery
+            entity_prefix: Prefix for entity IDs (e.g., "sonorium")
+            mqtt_publish: Async function to publish MQTT messages
+            device_info: HA device info dict for grouping entities
+        """
+        self.speaker = speaker
+        self.prefix = entity_prefix
+        self.mqtt_publish = mqtt_publish
+        self.base_device_info = device_info
+
+        # Create slug from canonical_id (safe for entity IDs)
+        self.slug = speaker.canonical_id.replace("unified_", "").lower()
+        self.base_topic = "homeassistant"
+        self.state_topic_base = f"{entity_prefix}/speaker/{self.slug}"
+
+        # Device info specific to this speaker
+        self.device_info = {
+            "identifiers": [f"{entity_prefix}_speaker_{self.slug}"],
+            "name": f"Sonorium: {speaker.name}",
+            "model": speaker.model or "Network Speaker",
+            "manufacturer": speaker.manufacturer or "Unknown",
+            "via_device": device_info.get("identifiers", [[]])[0],
+        }
+
+    def _get_unique_id(self, suffix: str) -> str:
+        """Generate unique ID for an entity."""
+        return f"{self.prefix}_speaker_{self.slug}_{suffix}"
+
+    def _get_discovery_topic(self, component: str, suffix: str) -> str:
+        """Generate MQTT discovery topic."""
+        unique_id = self._get_unique_id(suffix)
+        return f"{self.base_topic}/{component}/{unique_id}/config"
+
+    async def publish_discovery(self):
+        """Publish MQTT discovery configs for speaker entities."""
+        import asyncio
+
+        await self._publish_play_switch()
+        await asyncio.sleep(0.05)
+        await self._publish_volume_number()
+        await asyncio.sleep(0.05)
+        await self._publish_info_sensor()
+
+        logger.info(f"Published MQTT discovery for direct speaker '{self.speaker.name}'")
+
+    async def remove_discovery(self):
+        """Remove MQTT discovery configs (publish empty payloads)."""
+        entities = [
+            ("switch", "play"),
+            ("number", "volume"),
+            ("sensor", "info"),
+        ]
+
+        for component, suffix in entities:
+            topic = self._get_discovery_topic(component, suffix)
+            await self.mqtt_publish(topic, "", retain=True)
+
+        logger.info(f"Removed MQTT discovery for direct speaker '{self.speaker.name}'")
+
+    async def update_state(self, is_playing: bool = False, volume: float = 1.0):
+        """Publish current state for all entities."""
+        # Play switch state
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/play/state",
+            "ON" if is_playing else "OFF",
+            retain=True,
+        )
+
+        # Volume number state (0-100)
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/volume/state",
+            str(int(volume * 100)),
+            retain=True,
+        )
+
+        # Info sensor - build status string
+        protocols = ", ".join(sorted(self.speaker.found_by))
+        info = f"{self.speaker.ip_address} ({protocols})"
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/info/state",
+            info,
+            retain=True,
+        )
+
+    async def _publish_play_switch(self):
+        """Publish play/stop switch discovery."""
+        unique_id = self._get_unique_id("play")
+        config = {
+            "name": f"{self.speaker.name} Play",
+            "unique_id": unique_id,
+            "default_entity_id": f"switch.{self.prefix}_speaker_{self.slug}_play",
+            "state_topic": f"{self.state_topic_base}/play/state",
+            "command_topic": f"{self.state_topic_base}/play/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:play-pause",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("switch", "play")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_volume_number(self):
+        """Publish volume control discovery."""
+        unique_id = self._get_unique_id("volume")
+        config = {
+            "name": f"{self.speaker.name} Volume",
+            "unique_id": unique_id,
+            "default_entity_id": f"number.{self.prefix}_speaker_{self.slug}_volume",
+            "state_topic": f"{self.state_topic_base}/volume/state",
+            "command_topic": f"{self.state_topic_base}/volume/set",
+            "min": 0,
+            "max": 100,
+            "step": 5,
+            "unit_of_measurement": "%",
+            "icon": "mdi:volume-high",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("number", "volume")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+    async def _publish_info_sensor(self):
+        """Publish info sensor discovery."""
+        unique_id = self._get_unique_id("info")
+        config = {
+            "name": f"{self.speaker.name} Info",
+            "unique_id": unique_id,
+            "default_entity_id": f"sensor.{self.prefix}_speaker_{self.slug}_info",
+            "state_topic": f"{self.state_topic_base}/info/state",
+            "icon": "mdi:speaker-wireless",
+            "device": self.device_info,
+        }
+
+        topic = self._get_discovery_topic("sensor", "info")
+        await self.mqtt_publish(topic, json.dumps(config), retain=True)
+
+
+class SonoriumMQTTManager:
+    """
+    Manages all MQTT entities for Sonorium.
+
+    Handles:
+    - Session entity creation/removal
+    - Command handling (play, theme, volume, preset)
+    - State synchronization
+    - Global control entities (session selector + controls for selected session)
+    - Global info entities (stop all, active count)
+    """
+
+    def __init__(
+        self,
+        state_store: StateStore,
+        session_manager: SessionManager,
+        mqtt_client,  # paho or fmtr.tools mqtt client
+        entity_prefix: str = "sonorium",
+        theme_metadata_manager=None,
+        hybrid_speaker_manager=None,  # HybridSpeakerManager for direct speakers
+        plugin_manager=None,  # PluginManager for speaker control
+    ):
+        """
+        Initialize the MQTT manager.
+
+        Args:
+            state_store: StateStore instance
+            session_manager: SessionManager instance
+            mqtt_client: MQTT client for publishing
+            entity_prefix: Prefix for entity IDs
+            theme_metadata_manager: ThemeMetadataManager for preset access
+            hybrid_speaker_manager: HybridSpeakerManager for direct-discovered speakers
+            plugin_manager: PluginManager for controlling direct speakers
+        """
+        self.state = state_store
+        self.session_manager = session_manager
+        self.mqtt_client = mqtt_client
+        self.prefix = entity_prefix
+        self._theme_metadata_manager = theme_metadata_manager
+        self._hybrid_speaker_manager = hybrid_speaker_manager
+        self._plugin_manager = plugin_manager
+
+        # Track session entity managers (per-session entities)
+        self._session_entities: dict[str, SessionMQTTEntities] = {}
+
+        # Track direct speaker entity managers (canonical_id -> entities)
+        self._direct_speaker_entities: dict[str, DirectSpeakerMQTTEntities] = {}
+
+        # Track selected session for global controls
+        self._selected_session_id: str | None = None
+
+        # Session name to ID mapping for global controls
+        self._session_name_to_id: dict[str, str] = {}
+
+        # Theme name/ID mappings for global controls (populated in _publish_global_entities)
+        self._theme_name_to_id: dict[str, str] = {}
+        self._theme_id_to_name: dict[str, str] = {}
+
+        # Preset name/ID mappings for global controls (populated in _update_global_preset_options)
+        self._preset_name_to_id: dict[str, str] = {}
+        self._preset_id_to_name: dict[str, str] = {}
+
+        # Device info for grouping entities
+        self.device_info = {
+            "identifiers": [f"{entity_prefix}_device"],
+            "name": "Sonorium",
+            "model": "Ambient Soundscape Mixer",
+            "manufacturer": "Sonorium",
+        }
+
+        # Themes cache
+        self._themes: list[dict] = []
+
+    def set_themes(self, themes: list[dict]):
+        """Update the available themes list."""
+        self._themes = themes
+
+    def get_presets_for_theme(self, theme_id: str) -> list[dict]:
+        """Get list of presets for a theme."""
+        if not self._theme_metadata_manager:
+            return []
+
+        try:
+            # Find the theme folder by ID
+            folder = self._theme_metadata_manager.get_folder_for_id(theme_id)
+            if not folder:
+                return []
+
+            metadata = self._theme_metadata_manager.get_metadata_by_folder(folder)
+            if not metadata or not metadata.presets:
+                return []
+
+            # Convert presets dict to list format
+            return [
+                {"id": pid, "name": pdata.get("name", pid)}
+                for pid, pdata in metadata.presets.items()
+            ]
+        except Exception as e:
+            logger.warning(f"Failed to get presets for theme {theme_id}: {e}")
+            return []
+
+    async def _mqtt_publish(self, topic: str, payload: str, retain: bool = False):
+        """Publish an MQTT message with logging."""
+        import asyncio
+        try:
+            if hasattr(self.mqtt_client, 'publish'):
+                # paho-style client - runs in executor to avoid blocking
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.mqtt_client.publish(topic, payload, retain=retain)
+                )
+                # Log entity config publishes at info level for debugging
+                if "/config" in topic:
+                    logger.info(f"  MQTT: Published entity config to {topic}")
+            elif hasattr(self.mqtt_client, 'send'):
+                # fmtr.tools style
+                await self.mqtt_client.send(topic, payload, retain=retain)
+            else:
+                logger.warning(f"Unknown MQTT client type ({type(self.mqtt_client).__name__}), cannot publish to {topic}")
+        except Exception as e:
+            logger.error(f"Failed to publish to {topic}: {e}")
+
+    async def _clear_stale_entities(self):
+        """
+        Clear entity configurations from OLD addon versions that no longer exist.
+
+        NOTE: We only delete entities with specific old names/IDs that are no longer
+        used. We do NOT delete entities we're about to create (that caused race
+        conditions). These old entities clutter the HA entity registry.
+        """
+        import asyncio
+        logger.info("  Clearing stale entities from old addon versions...")
+
+        # Known stale entities from old addon versions that need to be deleted
+        # Format: (component, object_id)
+        stale_entities = [
+            # Old entity names from pre-v1.2.x versions
+            ("button", f"{self.prefix}_play"),
+            ("select", f"{self.prefix}_theme_2"),
+            ("sensor", f"{self.prefix}_playback_state"),
+            ("switch", f"{self.prefix}_2"),
+            ("switch", f"{self.prefix}_enable_recording"),
+            ("switch", f"{self.prefix}_paused"),
+            ("switch", f"{self.prefix}_play_2"),
+            ("switch", f"{self.prefix}_playing"),
+            ("switch", f"{self.prefix}_theme_enabled"),
+            ("update", f"{self.prefix}_update_2"),
+            # Old global entities replaced with "global_" prefix in v1.2.37
+            ("switch", f"{self.prefix}_play"),
+            ("select", f"{self.prefix}_theme"),
+            ("sensor", f"{self.prefix}_active_sessions"),
+        ]
+
+        for component, object_id in stale_entities:
+            topic = f"homeassistant/{component}/{object_id}/config"
+            # Empty payload deletes the entity from HA
+            await self._mqtt_publish(topic, "", retain=True)
+
+        logger.info(f"    Cleared {len(stale_entities)} stale entity configs")
+
+        # Give HA time to process the deletions before creating new entities
+        await asyncio.sleep(0.5)
+
+    async def initialize(self):
+        """Initialize MQTT entities for all sessions and direct speakers."""
+        logger.info("Initializing MQTT entities...")
+
+        # Clear stale entities first
+        await self._clear_stale_entities()
+
+        # Create entities for existing sessions
+        for session in self.state.sessions.values():
+            await self.add_session_entities(session)
+
+        # Auto-select first session so global controls work immediately after restart
+        if self.state.sessions and not self._selected_session_id:
+            first_session = next(iter(self.state.sessions.values()))
+            self._selected_session_id = first_session.id
+            logger.info(f"  Auto-selected session: {first_session.name}")
+
+        # Publish global entities
+        await self._publish_global_entities()
+
+        # Subscribe to command topics
+        await self._subscribe_commands()
+
+        logger.info(f"MQTT initialized with {len(self._session_entities)} sessions")
+
+    async def initialize_direct_speakers(self):
+        """
+        Initialize MQTT entities for direct-discovered speakers.
+
+        Call this AFTER hybrid speaker discovery has completed.
+        Only creates entities for speakers that don't have HA entities.
+        """
+        if not self._hybrid_speaker_manager:
+            logger.debug("No hybrid speaker manager - skipping direct speaker MQTT entities")
+            return
+
+        direct_speakers = self._hybrid_speaker_manager.get_direct_only_speakers()
+        if not direct_speakers:
+            logger.info("No direct-only speakers to expose via MQTT")
+            return
+
+        logger.info(f"Creating MQTT entities for {len(direct_speakers)} direct-discovered speaker(s)...")
+
+        for speaker in direct_speakers:
+            await self.add_direct_speaker_entities(speaker)
+
+        logger.info(f"  Direct speaker MQTT entities: {len(self._direct_speaker_entities)} created")
+
+    async def add_direct_speaker_entities(self, speaker):
+        """Add MQTT entities for a direct-discovered speaker."""
+        if speaker.canonical_id in self._direct_speaker_entities:
+            return
+
+        entities = DirectSpeakerMQTTEntities(
+            speaker=speaker,
+            entity_prefix=self.prefix,
+            mqtt_publish=self._mqtt_publish,
+            device_info=self.device_info,
+        )
+
+        await entities.publish_discovery()
+        await entities.update_state()
+
+        self._direct_speaker_entities[speaker.canonical_id] = entities
+
+        # Subscribe to this speaker's command topics
+        await self._subscribe_direct_speaker_commands(speaker)
+
+    async def remove_direct_speaker_entities(self, canonical_id: str):
+        """Remove MQTT entities for a direct speaker."""
+        if canonical_id not in self._direct_speaker_entities:
+            return
+
+        entities = self._direct_speaker_entities.pop(canonical_id)
+        await entities.remove_discovery()
+
+    async def _subscribe_direct_speaker_commands(self, speaker):
+        """Subscribe to command topics for a direct speaker."""
+        slug = speaker.canonical_id.replace("unified_", "").lower()
+        topics = [
+            f"{self.prefix}/speaker/{slug}/play/set",
+            f"{self.prefix}/speaker/{slug}/volume/set",
+        ]
+
+        try:
+            if hasattr(self.mqtt_client, 'subscribe'):
+                for topic in topics:
+                    result = self.mqtt_client.subscribe(topic)
+                    if hasattr(result, '__await__'):
+                        await result
+        except Exception as e:
+            logger.error(f"Failed to subscribe to direct speaker topics: {e}")
+
+    async def add_session_entities(self, session: Session):
+        """Add MQTT entities for a new session."""
+        if session.id in self._session_entities:
+            return
+
+        entities = SessionMQTTEntities(
+            session=session,
+            entity_prefix=self.prefix,
+            mqtt_publish=self._mqtt_publish,
+            device_info=self.device_info,
+            themes=self._themes,
+            get_presets_for_theme=self.get_presets_for_theme,
+        )
+
+        await entities.publish_discovery()
+        await entities.update_state()
+
+        # Update speakers sensor
+        speaker_summary = self.session_manager.get_speaker_summary(session)
+        await entities.update_speakers_sensor(speaker_summary)
+
+        self._session_entities[session.id] = entities
+
+        # Update session selector options
+        await self._update_session_selector_options()
+
+    async def remove_session_entities(self, session_id: str):
+        """Remove MQTT entities for a deleted session."""
+        if session_id not in self._session_entities:
+            return
+
+        entities = self._session_entities.pop(session_id)
+        await entities.remove_discovery()
+
+        # If removed session was selected, clear selection
+        if self._selected_session_id == session_id:
+            self._selected_session_id = None
+            await self._mqtt_publish(
+                f"{self.prefix}/session/state",
+                "",
+                retain=True,
+            )
+            await self._update_global_control_states()
+
+        # Update session selector options
+        await self._update_session_selector_options()
+
+    async def update_session_state(self, session: Session):
+        """Update state for a session's entities."""
+        if session.id not in self._session_entities:
+            await self.add_session_entities(session)
+            return
+
+        entities = self._session_entities[session.id]
+        entities.session = session  # Update reference
+        await entities.update_state()
+
+        # Update speakers sensor
+        speaker_summary = self.session_manager.get_speaker_summary(session)
+        await entities.update_speakers_sensor(speaker_summary)
+
+    async def refresh_session_discovery(self, session: Session):
+        """
+        Republish MQTT discovery for a session.
+
+        Call this when a session's name or other discoverable properties change
+        to update the entity names in Home Assistant.
+        """
+        if session.id not in self._session_entities:
+            await self.add_session_entities(session)
+            return
+
+        entities = self._session_entities[session.id]
+        entities.session = session  # Update reference with new name
+        await entities.publish_discovery()  # Republish with updated name
+        await entities.update_state()
+
+        # Also update the session selector since it shows session names
+        await self._update_session_selector_options()
+
+        logger.info(f"  Refreshed MQTT discovery for session '{session.name}'")
+
+    async def _publish_global_entities(self):
+        """Publish global Sonorium entities including session selector and controls."""
+        import asyncio
+        logger.info("  Publishing global entities...")
+
+        # === SESSION SELECTOR ===
+        # Dropdown to select which session to control (uses names, maps to IDs)
+        session_options = [""]  # Empty = no selection
+        self._session_name_to_id = {}  # Reset mapping
+
+        for session in self.state.sessions.values():
+            name = session.name or session.id
+            session_options.append(name)
+            self._session_name_to_id[name] = session.id
+
+        config = {
+            "name": "Sonorium Session",
+            "unique_id": f"{self.prefix}_session",
+            "default_entity_id": f"select.{self.prefix}_session",
+            "state_topic": f"{self.prefix}/session/state",
+            "command_topic": f"{self.prefix}/session/set",
+            "options": session_options,
+            "icon": "mdi:playlist-music",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_session/config",
+            json.dumps(config),
+            retain=True,
+        )
+        logger.info("    Published: select.sonorium_session")
+
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+
+        # Publish initial session state (as name, not ID)
+        selected_name = ""
+        if self._selected_session_id:
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                selected_name = session.name or session.id
+        await self._mqtt_publish(
+            f"{self.prefix}/session/state",
+            selected_name,
+            retain=True,
+        )
+
+        # Additional delay before next entity
+        await asyncio.sleep(0.1)
+
+        # === GLOBAL PLAY SWITCH ===
+        # Controls play state of selected session
+        # NOTE: Using "global_play" to avoid conflict with stuck old "play" entity
+        config = {
+            "name": "Sonorium Play",
+            "unique_id": f"{self.prefix}_global_play",
+            "default_entity_id": f"switch.{self.prefix}_global_play",
+            "state_topic": f"{self.prefix}/play/state",
+            "command_topic": f"{self.prefix}/play/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:play-pause",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/switch/{self.prefix}_global_play/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/play/state",
+            "OFF",
+            retain=True,
+        )
+        await asyncio.sleep(0.1)
+
+        # === GLOBAL THEME SELECT ===
+        # NOTE: Using "global_theme" to avoid conflict with stuck old "theme" entity
+        # Use theme NAMES for options, map to IDs internally
+        theme_options = [""]  # Empty = no theme
+        self._theme_name_to_id = {}  # Map theme names to IDs
+        self._theme_id_to_name = {}  # Map theme IDs to names
+        for theme in self._themes:
+            theme_id = theme.get("id")
+            theme_name = theme.get("name")
+            if theme_id and theme_name:
+                theme_options.append(theme_name)
+                self._theme_name_to_id[theme_name] = theme_id
+                self._theme_id_to_name[theme_id] = theme_name
+        logger.info(f"    Theme select options: {len(theme_options) - 1} themes")
+
+        config = {
+            "name": "Sonorium Theme",
+            "unique_id": f"{self.prefix}_global_theme",
+            "default_entity_id": f"select.{self.prefix}_global_theme",
+            "state_topic": f"{self.prefix}/theme/state",
+            "command_topic": f"{self.prefix}/theme/set",
+            "options": theme_options,
+            "icon": "mdi:music-box-multiple",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_global_theme/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/theme/state",
+            "",
+            retain=True,
+        )
+        await asyncio.sleep(0.1)
+
+        # === GLOBAL PRESET SELECT ===
+        config = {
+            "name": "Sonorium Preset",
+            "unique_id": f"{self.prefix}_preset",
+            "default_entity_id": f"select.{self.prefix}_preset",
+            "state_topic": f"{self.prefix}/preset/state",
+            "command_topic": f"{self.prefix}/preset/set",
+            "options": [""],  # Will be updated when session/theme changes
+            "icon": "mdi:tune-variant",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_preset/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/preset/state",
+            "",
+            retain=True,
+        )
+        await asyncio.sleep(0.1)
+
+        # === GLOBAL VOLUME NUMBER ===
+        config = {
+            "name": "Sonorium Volume",
+            "unique_id": f"{self.prefix}_volume",
+            "default_entity_id": f"number.{self.prefix}_volume",
+            "state_topic": f"{self.prefix}/volume/state",
+            "command_topic": f"{self.prefix}/volume/set",
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "unit_of_measurement": "%",
+            "icon": "mdi:volume-high",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/number/{self.prefix}_volume/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/volume/state",
+            "50",
+            retain=True,
+        )
+        await asyncio.sleep(0.1)
+
+        # === GLOBAL STATUS SENSOR ===
+        config = {
+            "name": "Sonorium Status",
+            "unique_id": f"{self.prefix}_status",
+            "default_entity_id": f"sensor.{self.prefix}_status",
+            "state_topic": f"{self.prefix}/status/state",
+            "icon": "mdi:information-outline",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/sensor/{self.prefix}_status/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/status/state",
+            "No session selected",
+            retain=True,
+        )
+        await asyncio.sleep(0.1)
+
+        # === GLOBAL SPEAKERS SENSOR ===
+        config = {
+            "name": "Sonorium Speakers",
+            "unique_id": f"{self.prefix}_speakers",
+            "default_entity_id": f"sensor.{self.prefix}_speakers",
+            "state_topic": f"{self.prefix}/speakers/state",
+            "icon": "mdi:speaker-multiple",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/sensor/{self.prefix}_speakers/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/speakers/state",
+            "None",
+            retain=True,
+        )
+        await asyncio.sleep(0.1)
+
+        # === STOP ALL SWITCH ===
+        # This is a momentary/command switch - set optimistic mode
+        config = {
+            "name": "Sonorium Stop All",
+            "unique_id": f"{self.prefix}_stop_all",
+            "default_entity_id": f"switch.{self.prefix}_stop_all",
+            "state_topic": f"{self.prefix}/stop_all/state",
+            "command_topic": f"{self.prefix}/stop_all/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:stop-circle",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/switch/{self.prefix}_stop_all/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+        # Publish initial state (always OFF - it's a momentary action)
+        await self._mqtt_publish(
+            f"{self.prefix}/stop_all/state",
+            "OFF",
+            retain=True,
+        )
+        await asyncio.sleep(0.1)
+
+        # === ACTIVE SESSIONS SENSOR ===
+        # NOTE: Using "global_active_sessions" to avoid conflict with any stuck old entity
+        config = {
+            "name": "Sonorium Active Sessions",
+            "unique_id": f"{self.prefix}_global_active_sessions",
+            "default_entity_id": f"sensor.{self.prefix}_global_active_sessions",
+            "state_topic": f"{self.prefix}/active_sessions/state",
+            "icon": "mdi:counter",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/sensor/{self.prefix}_global_active_sessions/config",
+            json.dumps(config),
+            retain=True,
+        )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+
+        logger.info("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
+
+        # Update active sessions count (publishes initial state)
+        await self._update_active_sessions_count()
+
+        # Update global control states
+        await self._update_global_control_states()
+
+    async def _update_active_sessions_count(self):
+        """Update the active sessions counter."""
+        count = sum(1 for s in self.state.sessions.values() if s.is_playing)
+        await self._mqtt_publish(
+            f"{self.prefix}/active_sessions/state",
+            str(count),
+            retain=True,
+        )
+
+    async def _update_global_control_states(self):
+        """Update global control entity states based on selected session."""
+        session = None
+        if self._selected_session_id:
+            session = self.state.sessions.get(self._selected_session_id)
+
+        if session:
+            # Play state
+            await self._mqtt_publish(
+                f"{self.prefix}/play/state",
+                "ON" if session.is_playing else "OFF",
+                retain=True,
+            )
+
+            # Theme state (use name, not ID)
+            theme_name = self._theme_id_to_name.get(session.theme_id, "") if session.theme_id else ""
+            await self._mqtt_publish(
+                f"{self.prefix}/theme/state",
+                theme_name,
+                retain=True,
+            )
+
+            # Preset state (use name, not ID)
+            preset_name = self._preset_id_to_name.get(session.preset_id, "") if session.preset_id else ""
+            await self._mqtt_publish(
+                f"{self.prefix}/preset/state",
+                preset_name,
+                retain=True,
+            )
+
+            # Volume state
+            await self._mqtt_publish(
+                f"{self.prefix}/volume/state",
+                str(session.volume),
+                retain=True,
+            )
+
+            # Status
+            status = "Playing" if session.is_playing else "Stopped"
+            if session.theme_id:
+                # Try to get theme name
+                theme_name = session.theme_id
+                for theme in self._themes:
+                    if theme.get("id") == session.theme_id:
+                        theme_name = theme.get("name", session.theme_id)
+                        break
+                status = f"{status} - {theme_name}"
+            await self._mqtt_publish(
+                f"{self.prefix}/status/state",
+                status,
+                retain=True,
+            )
+
+            # Speakers
+            speaker_summary = self.session_manager.get_speaker_summary(session)
+            await self._mqtt_publish(
+                f"{self.prefix}/speakers/state",
+                speaker_summary,
+                retain=True,
+            )
+
+            # Update preset options for selected session's theme
+            await self._update_global_preset_options(session.theme_id)
+        else:
+            # No session selected - show empty/default states
+            await self._mqtt_publish(f"{self.prefix}/play/state", "OFF", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/theme/state", "", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/preset/state", "", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/volume/state", "50", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/status/state", "No session selected", retain=True)
+            await self._mqtt_publish(f"{self.prefix}/speakers/state", "None", retain=True)
+            await self._update_global_preset_options(None)
+
+    async def _update_global_preset_options(self, theme_id: str | None):
+        """Update the global preset select options based on theme."""
+        options = [""]  # Empty option
+        self._preset_name_to_id = {}
+        self._preset_id_to_name = {}
+
+        if theme_id:
+            presets = self.get_presets_for_theme(theme_id)
+            for p in presets:
+                preset_id = p.get("id")
+                preset_name = p.get("name", preset_id)  # Fall back to ID if no name
+                if preset_id:
+                    options.append(preset_name)
+                    self._preset_name_to_id[preset_name] = preset_id
+                    self._preset_id_to_name[preset_id] = preset_name
+
+        # Re-publish config with updated options
+        config = {
+            "name": "Sonorium Preset",
+            "unique_id": f"{self.prefix}_preset",
+            "default_entity_id": f"select.{self.prefix}_preset",
+            "state_topic": f"{self.prefix}/preset/state",
+            "command_topic": f"{self.prefix}/preset/set",
+            "options": options,
+            "icon": "mdi:tune-variant",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_preset/config",
+            json.dumps(config),
+            retain=True,
+        )
+
+    async def _update_session_selector_options(self):
+        """Update the session selector options when sessions change."""
+        # Use session NAMES (not IDs) to be consistent with _publish_global_entities
+        session_options = [""]  # Empty = no selection
+        self._session_name_to_id = {}  # Reset mapping
+
+        for session in self.state.sessions.values():
+            name = session.name or session.id
+            session_options.append(name)
+            self._session_name_to_id[name] = session.id
+
+        config = {
+            "name": "Sonorium Session",
+            "unique_id": f"{self.prefix}_session",
+            "default_entity_id": f"select.{self.prefix}_session",
+            "state_topic": f"{self.prefix}/session/state",
+            "command_topic": f"{self.prefix}/session/set",
+            "options": session_options,
+            "icon": "mdi:playlist-music",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_session/config",
+            json.dumps(config),
+            retain=True,
+        )
+
+    async def _subscribe_commands(self):
+        """Subscribe to command topics."""
+        # Build list of topics to subscribe
+        topics = [
+            # Global control topics
+            f"{self.prefix}/stop_all/set",
+            f"{self.prefix}/session/set",
+            f"{self.prefix}/play/set",
+            f"{self.prefix}/theme/set",
+            f"{self.prefix}/preset/set",
+            f"{self.prefix}/volume/set",
+        ]
+
+        # Add session-specific topics
+        for session in self.state.sessions.values():
+            slug = session.get_entity_slug()
+            topics.extend([
+                f"{self.prefix}/{slug}/play/set",
+                f"{self.prefix}/{slug}/theme/set",
+                f"{self.prefix}/{slug}/preset/set",
+                f"{self.prefix}/{slug}/volume/set",
+            ])
+
+        # Subscribe (implementation depends on MQTT client type)
+        import asyncio
+        try:
+            if hasattr(self.mqtt_client, 'subscribe'):
+                for topic in topics:
+                    result = self.mqtt_client.subscribe(topic)
+                    if asyncio.iscoroutine(result):
+                        await result
+        except Exception as e:
+            logger.error(f"Failed to subscribe to topics: {e}")
+
+    async def handle_command(self, topic: str, payload: str):
+        """
+        Handle an incoming MQTT command.
+
+        Called by the MQTT client's message callback.
+        """
+        logger.info(f"MQTT command: {topic} = {payload}")
+
+        # === GLOBAL COMMANDS ===
+
+        # Stop all
+        if topic == f"{self.prefix}/stop_all/set" and payload == "ON":
+            await self.session_manager.stop_all()
+            await self._update_active_sessions_count()
+            await self._update_global_control_states()
+            return
+
+        # Session selector
+        if topic == f"{self.prefix}/session/set":
+            # Payload is session NAME, convert to ID using mapping
+            if payload:
+                new_session_id = self._session_name_to_id.get(payload)
+                if not new_session_id:
+                    logger.warning(f"Session name not found: {payload}")
+                    return
+            else:
+                new_session_id = None
+
+            self._selected_session_id = new_session_id
+
+            # Publish state as NAME (not ID) to match select options
+            selected_name = payload if payload else ""
+            await self._mqtt_publish(
+                f"{self.prefix}/session/state",
+                selected_name,
+                retain=True,
+            )
+            await self._update_global_control_states()
+            return
+
+        # Global play control (operates on selected session)
+        if topic == f"{self.prefix}/play/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global play control")
+                return
+
+            if payload == "ON":
+                await self.session_manager.play(self._selected_session_id)
+            else:
+                await self.session_manager.pause(self._selected_session_id)
+
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                await self.update_session_state(session)
+            await self._update_active_sessions_count()
+            await self._update_global_control_states()
+            return
+
+        # Global theme control
+        if topic == f"{self.prefix}/theme/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global theme control")
+                return
+
+            # Convert theme name to ID (payload is the theme name from the dropdown)
+            theme_id = self._theme_name_to_id.get(payload) if payload else None
+            if payload and not theme_id:
+                logger.warning(f"Unknown theme name: {payload}")
+                return
+
+            self.session_manager.update(self._selected_session_id, theme_id=theme_id)
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                await self.update_session_state(session)
+                # Update preset options in session entity
+                if self._selected_session_id in self._session_entities:
+                    await self._session_entities[self._selected_session_id].update_preset_options()
+            await self._update_global_control_states()
+            return
+
+        # Global preset control
+        if topic == f"{self.prefix}/preset/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global preset control")
+                return
+
+            # Convert preset name to ID (payload is the preset name from the dropdown)
+            preset_id = self._preset_name_to_id.get(payload) if payload else None
+            if payload and not preset_id:
+                logger.warning(f"Unknown preset name: {payload}")
+                return
+
+            self.session_manager.update(self._selected_session_id, preset_id=preset_id)
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                await self.update_session_state(session)
+            await self._update_global_control_states()
+            return
+
+        # Global volume control
+        if topic == f"{self.prefix}/volume/set":
+            if not self._selected_session_id:
+                logger.warning("No session selected for global volume control")
+                return
+
+            try:
+                volume = int(float(payload))
+                await self.session_manager.set_volume(self._selected_session_id, volume)
+                session = self.state.sessions.get(self._selected_session_id)
+                if session:
+                    await self.update_session_state(session)
+                await self._update_global_control_states()
+            except ValueError:
+                logger.warning(f"Invalid volume value: {payload}")
+            return
+
+        # === SESSION-SPECIFIC COMMANDS ===
+
+        for session_id, entities in self._session_entities.items():
+            slug = entities.slug
+
+            if topic == f"{self.prefix}/{slug}/play/set":
+                if payload == "ON":
+                    await self.session_manager.play(session_id)
+                else:
+                    await self.session_manager.pause(session_id)
+                session = self.state.sessions.get(session_id)
+                if session:
+                    await self.update_session_state(session)
+                await self._update_active_sessions_count()
+                # Update global state if this is the selected session
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
+                return
+
+            elif topic == f"{self.prefix}/{slug}/theme/set":
+                # Convert theme name to ID (payload is the theme name from the dropdown)
+                theme_id = entities._theme_name_to_id.get(payload) if payload else None
+                if payload and not theme_id:
+                    logger.warning(f"Unknown theme name for session {session_id}: {payload}")
+                    return
+
+                self.session_manager.update(session_id, theme_id=theme_id)
+                session = self.state.sessions.get(session_id)
+                if session:
+                    await self.update_session_state(session)
+                    # Update preset options when theme changes
+                    await entities.update_preset_options()
+                # Update global state if this is the selected session
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
+                return
+
+            elif topic == f"{self.prefix}/{slug}/preset/set":
+                # Convert preset name to ID (payload is the preset name from the dropdown)
+                preset_id = entities._preset_name_to_id.get(payload) if payload else None
+                if payload and not preset_id:
+                    logger.warning(f"Unknown preset name for session {session_id}: {payload}")
+                    return
+
+                self.session_manager.update(session_id, preset_id=preset_id)
+                session = self.state.sessions.get(session_id)
+                if session:
+                    await self.update_session_state(session)
+                # Update global state if this is the selected session
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
+                return
+
+            elif topic == f"{self.prefix}/{slug}/volume/set":
+                try:
+                    volume = int(float(payload))
+                    await self.session_manager.set_volume(session_id, volume)
+                    session = self.state.sessions.get(session_id)
+                    if session:
+                        await self.update_session_state(session)
+                    # Update global state if this is the selected session
+                    if session_id == self._selected_session_id:
+                        await self._update_global_control_states()
+                except ValueError:
+                    logger.warning(f"Invalid volume value: {payload}")
+                return
+
+        # === DIRECT SPEAKER COMMANDS ===
+        # Handle commands for direct-discovered speakers (not in HA)
+        if topic.startswith(f"{self.prefix}/speaker/"):
+            await self._handle_direct_speaker_command(topic, payload)
+            return
+
+    async def _handle_direct_speaker_command(self, topic: str, payload: str):
+        """Handle commands for direct-discovered speakers."""
+        # Parse topic: sonorium/speaker/{slug}/{command}/set
+        parts = topic.split("/")
+        if len(parts) < 5:
+            logger.warning(f"Invalid direct speaker topic format: {topic}")
+            return
+
+        slug = parts[2]
+        command = parts[3]
+
+        # Find the speaker entity
+        entities = None
+        speaker = None
+        for canonical_id, ent in self._direct_speaker_entities.items():
+            if ent.slug == slug:
+                entities = ent
+                speaker = ent.speaker
+                break
+
+        if not entities or not speaker:
+            logger.warning(f"Unknown direct speaker: {slug}")
+            return
+
+        # Find the appropriate plugin to control this speaker
+        plugin = self._find_plugin_for_speaker(speaker)
+        if not plugin:
+            logger.warning(f"No plugin found to control speaker: {speaker.name}")
+            return
+
+        # Handle command
+        if command == "play":
+            if payload == "ON":
+                # Get stream URL from session manager (use default channel)
+                stream_url = self.session_manager.stream_base_url + "/stream/channel0"
+                logger.info(f"MQTT: Playing to direct speaker {speaker.name} via {plugin.name}")
+                success = await plugin.play_url(speaker.uuid or speaker.canonical_id, stream_url)
+                if success:
+                    await entities.update_state(is_playing=True)
+            else:
+                logger.info(f"MQTT: Stopping direct speaker {speaker.name} via {plugin.name}")
+                await plugin.stop(speaker.uuid or speaker.canonical_id)
+                await entities.update_state(is_playing=False)
+
+        elif command == "volume":
+            try:
+                volume = int(float(payload))
+                level = volume / 100.0  # Convert 0-100 to 0.0-1.0
+                logger.info(f"MQTT: Setting volume on {speaker.name} to {volume}%")
+                await plugin.set_volume(speaker.uuid or speaker.canonical_id, level)
+                await entities.update_state(volume=level)
+            except ValueError:
+                logger.warning(f"Invalid volume value: {payload}")
+
+    def _find_plugin_for_speaker(self, speaker):
+        """Find the appropriate plugin to control a speaker based on its protocol."""
+        if not self._plugin_manager:
+            return None
+
+        # Get protocol from speaker's found_by set
+        protocol = speaker.protocol or (list(speaker.found_by)[0] if speaker.found_by else None)
+        if not protocol:
+            return None
+
+        # Map protocol to plugin ID
+        protocol_to_plugin = {
+            "sonos": "sonos",
+            "chromecast": "chromecast",
+            "airplay": "airplay",
+            "dlna": "dlna",
+            "linkplay": "linkplay",
+            "heos": "heos",
+        }
+
+        plugin_id = protocol_to_plugin.get(protocol.lower())
+        if not plugin_id:
+            return None
+
+        # Get the plugin
+        for plugin in self._plugin_manager.get_plugins_by_type("speaker"):
+            if plugin.id == plugin_id and plugin.enabled:
+                return plugin
+
+        return None
+
+    async def sync_all_states(self):
+        """Synchronize all entity states with current session data."""
+        for session in self.state.sessions.values():
+            await self.update_session_state(session)
+        await self._update_active_sessions_count()
+
+
+__all__ = [
+    "EntityConfig",
+    "SessionMQTTEntities",
+    "DirectSpeakerMQTTEntities",
+    "SonoriumMQTTManager",
+]
