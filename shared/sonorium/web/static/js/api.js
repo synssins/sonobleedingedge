@@ -9,17 +9,19 @@ class SonoriumAPI {
     constructor() {
         // Use base path from index.html (supports HA ingress)
         // Falls back to calculating from current path
-        this.baseUrl = window.SONORIUM_BASE !== undefined
+        let base = window.SONORIUM_BASE !== undefined
             ? window.SONORIUM_BASE
             : (function() {
                 const path = window.location.pathname;
-                const base = path.replace(/\/?(index\.html)?$/, '');
-                return base ? base + '/' : '';
+                return path.replace(/\/?(index\.html)?$/, '');
             })();
+
+        // Ensure baseUrl ends with / when not empty (for proper URL construction)
+        this.baseUrl = base ? (base.endsWith('/') ? base : base + '/') : '';
     }
 
     async request(method, endpoint, data = null) {
-        // Use relative URL (no leading slash) for ingress compatibility
+        // Use relative URL for ingress compatibility
         const url = `${this.baseUrl}api${endpoint}`;
         const options = {
             method,

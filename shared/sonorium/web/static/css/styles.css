@@ -58,6 +58,19 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 0.5rem;
+}
+
+.logo-img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+}
+
+.logo-text {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--accent-primary);
 }
 
 .sidebar-logo h1 {
@@ -195,6 +208,12 @@ body {
 .nav-sub-item.active {
     color: var(--accent-primary);
     border-left-color: var(--accent-primary);
+}
+
+.nav-sub-item svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
 }
 
 .sidebar-footer {
